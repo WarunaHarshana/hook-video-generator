@@ -1,0 +1,22 @@
+{
+  "src": "C:\\Videos\\source.mp4",
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "duration": 120,
+  "title": "",
+  "highlights": [
+    {
+      "start": 8.5,
+      "duration": 3
+    },
+    {
+      "start": 42,
+      "duration": 3
+    },
+    {
+      "start": 76.25,
+      "duration": 3
+    }
+  ]
+}

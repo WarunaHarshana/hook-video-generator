@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hook Video Generator</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Hook Video Generator</h1>
+      </div>
+      <div class="status-pill" id="statusPill" aria-live="polite">Status: Idle</div>
+    </header>
+
+    <main class="shell">
+      <section class="panel control-panel" aria-label="Controls">
+        <div class="field source-field">
+          <label for="sourcePath">Source video path</label>
+          <div class="path-picker">
+            <input id="sourcePath" type="text" spellcheck="false" />
+            <button id="chooseFileBtn" type="button">Choose</button>
+          </div>
+          <div class="upload-status" id="uploadStatus"></div>
+        </div>
+
+        <div class="option-grid">
+          <div class="field">
+            <label for="clipDuration">Clip seconds</label>
+            <input id="clipDuration" type="number" min="0.1" step="0.1" value="3" />
+          </div>
+          <div class="field">
+            <label for="maxClips">Max clips</label>
+            <input id="maxClips" type="number" min="1" step="1" value="8" />
+          </div>
+          <div class="field">
+            <label for="sceneThreshold">Scene threshold</label>
+            <input id="sceneThreshold" type="number" min="0.01" max="1" step="0.01" value="0.32" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="analyzeBtn" class="primary">Analyze Hooks</button>
+          <button id="cancelJobBtn" type="button" class="danger-button" hidden>
+            Cancel
+          </button>
+          <button id="reloadBtn">Reload</button>
+        </div>
+
+        <div class="process-progress" id="processProgress">
+          <div class="progress-head">
+            <span id="progressPhase">Ready</span>
+            <strong id="progressPercent">0%</strong>
+          </div>
+          <div class="progress-track">
+            <div id="progressFill"></div>
+          </div>
+          <div class="process-note" id="processNote">Ready</div>
+        </div>
+
+        <div class="metric-grid" id="metrics">
+          <div><span>Resolution</span><strong>-</strong></div>
+          <div><span>FPS</span><strong>-</strong></div>
+          <div><span>Highlights</span><strong>-</strong></div>
+          <div><span>Duration</span><strong>-</strong></div>
+        </div>
+
+        <div class="render-block">
+          <div class="field">
+            <label for="outputPath">Output path</label>
+            <div class="path-picker">
+              <input id="outputPath" type="text" spellcheck="false" value="hook.mp4" />
+              <button id="chooseOutputBtn" type="button">Choose</button>
+            </div>
+          </div>
+          <div class="option-grid render-options">
+            <div class="field">
+              <label for="renderMode">Render engine</label>
+              <select id="renderMode">
+                <option value="auto">Auto GPU</option>
+                <option value="gpu">Force GPU</option>
+                <option value="cpu">CPU only</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="glMode">GL</label>
+              <select id="glMode">
+                <option value="angle">angle</option>
+                <option value="vulkan">vulkan</option>
+                <option value="egl">egl</option>
+                <option value="swiftshader">swiftshader</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="concurrency">Concurrency</label>
+              <input id="concurrency" type="number" min="1" step="1" value="2" />
+            </div>
+            <div class="field">
+              <label for="renderTimeout">Timeout min</label>
+              <input id="renderTimeout" type="number" min="1" step="1" value="5" />
+            </div>
+          </div>
+          <div class="cleanup-row">
+            <label class="checkbox-control" for="clearAfterRender">
+              <input id="clearAfterRender" type="checkbox" />
+              <span>Clear workspace after render</span>
+            </label>
+            <button id="clearWorkspaceBtn" type="button" class="danger-button">
+              Clear workspace
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Workspace">
+        <div class="preview-grid">
+          <div class="viewer">
+            <div class="viewer-head">
+              <h2>Source</h2>
+              <div class="viewer-actions">
+                <span id="sourceMeta">-</span>
+                <button
+                  id="sourceFullscreenBtn"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Fullscreen source preview"
+                  title="Fullscreen"
+                >
+                  Full
+                </button>
+              </div>
+            </div>
+            <video id="sourceVideo" controls preload="metadata" playsinline></video>
+          </div>
+          <div class="viewer">
+            <div class="viewer-head">
+              <h2>Hook</h2>
+              <div class="viewer-actions">
+                <span id="outputMeta">-</span>
+                <button
+                  id="outputFullscreenBtn"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Fullscreen hook preview"
+                  title="Fullscreen"
+                >
+                  Full
+                </button>
+              </div>
+            </div>
+            <video id="outputVideo" controls preload="metadata" playsinline></video>
+          </div>
+        </div>
+
+        <div class="panel editor-panel">
+          <div class="editor-head">
+            <div>
+              <p class="eyebrow">Compilation</p>
+              <h2>Highlights</h2>
+            </div>
+            <div class="button-row">
+              <button id="addHighlightBtn">Add</button>
+              <button id="renderFinalBtn" class="primary">Render Final Hook</button>
+              <button id="saveProjectBtn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="field title-field">
+            <label for="titleText">Opening title</label>
+            <input id="titleText" type="text" spellcheck="false" />
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Preview</th>
+                  <th>Start</th>
+                  <th>Duration</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="highlightRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

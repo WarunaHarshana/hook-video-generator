@@ -1,0 +1,17 @@
+node_modules/
+dist/
+out/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.m4v
+project.json
+.hook-workspace-manifest.json
+.hook-thumbnails/
+.tmp-remotion-test/
+.tmp/
+.ui-server.log
+.ui-server.err.log
+uploads/

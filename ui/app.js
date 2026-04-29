@@ -1,0 +1,795 @@
+const state = {
+  project: null,
+  thumbnails: [],
+  activeJob: null,
+  pollTimer: null,
+  jobEvents: null,
+  previewStopTimer: null,
+};
+
+const els = {
+  statusPill: document.querySelector("#statusPill"),
+  sourcePath: document.querySelector("#sourcePath"),
+  chooseFileBtn: document.querySelector("#chooseFileBtn"),
+  uploadStatus: document.querySelector("#uploadStatus"),
+  clipDuration: document.querySelector("#clipDuration"),
+  maxClips: document.querySelector("#maxClips"),
+  sceneThreshold: document.querySelector("#sceneThreshold"),
+  analyzeBtn: document.querySelector("#analyzeBtn"),
+  cancelJobBtn: document.querySelector("#cancelJobBtn"),
+  reloadBtn: document.querySelector("#reloadBtn"),
+  progressPhase: document.querySelector("#progressPhase"),
+  progressPercent: document.querySelector("#progressPercent"),
+  progressFill: document.querySelector("#progressFill"),
+  processNote: document.querySelector("#processNote"),
+  metrics: document.querySelector("#metrics"),
+  outputPath: document.querySelector("#outputPath"),
+  chooseOutputBtn: document.querySelector("#chooseOutputBtn"),
+  renderMode: document.querySelector("#renderMode"),
+  glMode: document.querySelector("#glMode"),
+  concurrency: document.querySelector("#concurrency"),
+  renderTimeout: document.querySelector("#renderTimeout"),
+  clearAfterRender: document.querySelector("#clearAfterRender"),
+  clearWorkspaceBtn: document.querySelector("#clearWorkspaceBtn"),
+  sourceVideo: document.querySelector("#sourceVideo"),
+  outputVideo: document.querySelector("#outputVideo"),
+  sourceMeta: document.querySelector("#sourceMeta"),
+  outputMeta: document.querySelector("#outputMeta"),
+  sourceFullscreenBtn: document.querySelector("#sourceFullscreenBtn"),
+  outputFullscreenBtn: document.querySelector("#outputFullscreenBtn"),
+  addHighlightBtn: document.querySelector("#addHighlightBtn"),
+  renderFinalBtn: document.querySelector("#renderFinalBtn"),
+  saveProjectBtn: document.querySelector("#saveProjectBtn"),
+  highlightRows: document.querySelector("#highlightRows"),
+  titleText: document.querySelector("#titleText"),
+};
+
+const api = async (path, options = {}) => {
+  const response = await fetch(path, {
+    headers: {"content-type": "application/json"},
+    ...options,
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Request failed");
+  }
+
+  return data;
+};
+
+const seconds = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)}s` : "-";
+};
+
+const totalHighlightSeconds = () => {
+  return (state.project?.highlights || []).reduce(
+    (sum, highlight) => sum + Number(highlight.duration || 0),
+    0,
+  );
+};
+
+const setStatus = (text, className = "") => {
+  els.statusPill.textContent = `Status: ${text}`;
+  els.statusPill.className = `status-pill ${className}`.trim();
+};
+
+const isActiveJob = (job = state.activeJob) => {
+  return Boolean(job && (job.status === "running" || job.status === "cancelling"));
+};
+
+const setBusy = (busy) => {
+  const activeJob = isActiveJob();
+  const cpuMode = els.renderMode.value === "cpu";
+  els.analyzeBtn.disabled = busy;
+  els.chooseFileBtn.disabled = busy;
+  els.chooseOutputBtn.disabled = busy;
+  els.renderMode.disabled = busy;
+  els.glMode.disabled = busy || cpuMode;
+  els.concurrency.disabled = busy;
+  els.renderTimeout.disabled = busy;
+  els.saveProjectBtn.disabled = busy || !state.project;
+  els.renderFinalBtn.disabled = busy || !state.project;
+  els.clearWorkspaceBtn.disabled = busy;
+  els.clearAfterRender.disabled = busy;
+  els.cancelJobBtn.hidden = !activeJob;
+  els.cancelJobBtn.disabled = !activeJob || state.activeJob.status === "cancelling";
+};
+
+const setProgress = (progress = 0, phase = "Ready") => {
+  const percent = Math.max(0, Math.min(Math.round(progress), 100));
+  els.progressPhase.textContent = phase || "Ready";
+  els.progressPercent.textContent = `${percent}%`;
+  els.progressFill.style.width = `${percent}%`;
+  els.processNote.textContent = phase || "Ready";
+};
+
+const formatBytes = (bytes) => {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 MB";
+  }
+
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const syncRenderModeControls = () => {
+  if (els.renderMode.value === "cpu") {
+    els.glMode.value = "swiftshader";
+  } else if (els.glMode.value === "swiftshader") {
+    els.glMode.value = "angle";
+  }
+
+  els.glMode.disabled = Boolean(state.activeJob && isActiveJob()) ||
+    els.renderMode.value === "cpu";
+};
+
+const stopJobUpdates = () => {
+  clearInterval(state.pollTimer);
+  state.pollTimer = null;
+
+  if (state.jobEvents) {
+    state.jobEvents.close();
+    state.jobEvents = null;
+  }
+};
+
+const clearVideo = (video) => {
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+};
+
+const clearPreviewTimer = () => {
+  if (state.previewStopTimer) {
+    clearTimeout(state.previewStopTimer);
+    state.previewStopTimer = null;
+  }
+};
+
+const setVideoSource = (video, src) => {
+  if (video.getAttribute("src") === src) {
+    return;
+  }
+
+  video.src = src;
+};
+
+const openFullscreen = async (video) => {
+  if (!video.currentSrc && !video.getAttribute("src")) {
+    els.processNote.textContent = "No preview is loaded";
+    return;
+  }
+
+  const fullscreenTarget = video.requestFullscreen ? video : video.parentElement;
+  await fullscreenTarget.requestFullscreen();
+};
+
+const resetProjectForNewSource = (src) => {
+  state.project = null;
+  state.thumbnails = [];
+  els.sourcePath.value = src;
+  els.titleText.value = "";
+  els.uploadStatus.textContent = src ? "Using original file path" : "";
+  renderMetrics();
+  renderHighlights();
+  clearVideo(els.outputVideo);
+  els.outputMeta.textContent = "-";
+
+  if (src) {
+    setVideoSource(
+      els.sourceVideo,
+      `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
+    );
+    els.sourceMeta.textContent = "Selected";
+  } else {
+    clearVideo(els.sourceVideo);
+    els.sourceMeta.textContent = "-";
+  }
+
+  setBusy(false);
+};
+
+const clearWorkspace = async ({skipConfirm = false} = {}) => {
+  const confirmed =
+    skipConfirm ||
+    window.confirm(
+      "Clear the current source, highlights, project data, and app-created workspace files? The rendered hook file stays saved.",
+    );
+
+  if (!confirmed) {
+    return null;
+  }
+
+  setStatus("Clearing", "running");
+  setProgress(0, "Clearing workspace");
+  setBusy(true);
+
+  try {
+    const result = await api("/api/clear-workspace", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const data = await api("/api/state");
+    state.project = data.project;
+    state.thumbnails = data.thumbnails || [];
+    state.activeJob = data.activeJob;
+    renderProject(data);
+    setStatus("Cleared", "done");
+    setProgress(100, "Workspace cleared");
+    els.processNote.textContent = `Cleared source and highlights. Removed ${
+      result.removed
+    } managed file${result.removed === 1 ? "" : "s"} (${formatBytes(
+      result.bytes,
+    )}). Hook output kept.`;
+    return result;
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+    throw error;
+  } finally {
+    setBusy(isActiveJob());
+  }
+};
+
+const renderMetrics = () => {
+  const project = state.project;
+  const values = project
+    ? [
+        `${project.width}x${project.height}`,
+        Number(project.fps).toFixed(3),
+        String(project.highlights.length),
+        seconds(totalHighlightSeconds()),
+      ]
+    : ["-", "-", "-", "-"];
+
+  [...els.metrics.querySelectorAll("strong")].forEach((node, index) => {
+    node.textContent = values[index];
+  });
+};
+
+const updateVideoSources = (serverState = {}) => {
+  if (state.project?.src) {
+    setVideoSource(els.sourceVideo, `/api/video?path=${encodeURIComponent(
+      state.project.src,
+    )}&t=${Date.now()}`);
+    els.sourceMeta.textContent = `${state.project.width}x${state.project.height}`;
+  } else {
+    clearVideo(els.sourceVideo);
+    els.sourceMeta.textContent = "-";
+  }
+
+  const outputPath = els.outputPath.value.trim() || serverState.outputPath;
+  const shouldShowOutput =
+    Boolean(state.project) &&
+    (serverState.outputExists || state.activeJob?.result?.outputExists);
+
+  if (shouldShowOutput) {
+    setVideoSource(els.outputVideo, `/api/video?path=${encodeURIComponent(
+      outputPath,
+    )}&t=${Date.now()}`);
+    els.outputMeta.textContent = "Ready";
+  } else {
+    clearVideo(els.outputVideo);
+    els.outputMeta.textContent = "-";
+  }
+};
+
+const renderHighlights = () => {
+  const highlights = state.project?.highlights || [];
+  els.highlightRows.innerHTML = "";
+
+  if (!highlights.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td class="empty-row" colspan="4">No highlights</td>`;
+    els.highlightRows.append(row);
+    return;
+  }
+
+  highlights.forEach((highlight, index) => {
+    const thumbnail = (state.thumbnails || []).find(
+      (item) =>
+        item.index === index &&
+        Number(item.start) === Number(highlight.start) &&
+        Number(item.duration) === Number(highlight.duration) &&
+        item.url,
+    );
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>
+        ${
+          thumbnail
+            ? `<button class="thumb-button" data-preview="${index}" type="button" title="Preview this hook"><img src="${thumbnail.url}" alt=""></button>`
+            : `<button class="thumb-placeholder" data-preview="${index}" type="button" title="Preview this hook">Preview</button>`
+        }
+      </td>
+      <td><input data-index="${index}" data-field="start" type="number" min="0" step="0.01" value="${highlight.start}"></td>
+      <td><input data-index="${index}" data-field="duration" type="number" min="0.01" step="0.01" value="${highlight.duration}"></td>
+      <td><button class="remove-btn" data-remove="${index}">Remove</button></td>
+    `;
+    els.highlightRows.append(row);
+  });
+};
+
+const generateThumbnails = async () => {
+  if (!state.project) {
+    return;
+  }
+
+  try {
+    setStatus("Previews", "running");
+    setProgress(92, "Generating hook previews");
+    setBusy(true);
+    const result = await api("/api/thumbnails", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    state.thumbnails = result.thumbnails || [];
+    renderHighlights();
+    setStatus("Ready", "done");
+    setProgress(100, "Review hooks, then render final");
+  } finally {
+    setBusy(isActiveJob());
+  }
+};
+
+const previewHighlight = async (index) => {
+  if (!state.project?.highlights[index]) {
+    return;
+  }
+
+  const highlight = state.project.highlights[index];
+  clearPreviewTimer();
+
+  if (!els.sourceVideo.getAttribute("src")) {
+    updateVideoSources();
+  }
+
+  els.sourceVideo.currentTime = Math.max(0, Number(highlight.start) || 0);
+  els.processNote.textContent = `Previewing ${seconds(highlight.duration)} hook from ${seconds(highlight.start)}`;
+
+  try {
+    await els.sourceVideo.play();
+    state.previewStopTimer = setTimeout(() => {
+      els.sourceVideo.pause();
+      state.previewStopTimer = null;
+    }, Math.max(250, Number(highlight.duration || 0) * 1000));
+  } catch {
+    // Seeking still works if the browser blocks autoplay for any reason.
+  }
+};
+
+const readRowsIntoProject = () => {
+  if (!state.project) {
+    return;
+  }
+
+  const next = state.project.highlights.map((highlight) => ({...highlight}));
+  els.highlightRows.querySelectorAll("input[data-index]").forEach((input) => {
+    const index = Number(input.dataset.index);
+    const field = input.dataset.field;
+    next[index][field] = Number(input.value);
+  });
+
+  state.project = {
+    ...state.project,
+    title: els.titleText.value.trim() || undefined,
+    highlights: next.filter(
+      (highlight) =>
+        Number.isFinite(highlight.start) &&
+        highlight.start >= 0 &&
+        Number.isFinite(highlight.duration) &&
+        highlight.duration > 0,
+    ),
+  };
+};
+
+const renderProject = (serverState = {}) => {
+  const project = state.project;
+
+  if (project) {
+    els.sourcePath.value = project.src;
+    els.titleText.value = project.title || "";
+    if (project.highlights.length > 0) {
+      els.clipDuration.value = project.highlights[0].duration;
+    }
+  } else {
+    els.sourcePath.value = "";
+    els.titleText.value = "";
+    els.uploadStatus.textContent = "";
+  }
+
+  renderMetrics();
+  renderHighlights();
+  updateVideoSources(serverState);
+  setBusy(isActiveJob());
+};
+
+const loadState = async () => {
+  const data = await api("/api/state");
+  state.project = data.project;
+  state.thumbnails = data.thumbnails || [];
+  state.activeJob = data.activeJob;
+  els.outputPath.value = data.outputPath || els.outputPath.value;
+  renderProject(data);
+
+  if (data.activeJob) {
+    followJob(data.activeJob.id);
+  } else {
+    setStatus("Idle");
+    setProgress(data.outputExists ? 100 : 0, data.outputExists ? "Ready" : "Ready");
+  }
+};
+
+const startRender = async () => {
+  readRowsIntoProject();
+  await api("/api/project", {
+    method: "POST",
+    body: JSON.stringify(state.project),
+  });
+  els.processNote.textContent = "Starting render...";
+  const job = await api("/api/render", {
+    method: "POST",
+    body: JSON.stringify({
+      out: els.outputPath.value,
+      renderMode: els.renderMode.value,
+      gl: els.glMode.value,
+      concurrency: Number(els.concurrency.value),
+      renderTimeoutMinutes: Number(els.renderTimeout.value),
+    }),
+  });
+  state.activeJob = job;
+  setStatus("Render", "running");
+  setProgress(job.progress, job.phase);
+  followJob(job.id);
+};
+
+const applyJobUpdate = async (job, options = {}) => {
+  state.activeJob = job;
+  setStatus(job.kind, job.status);
+  setProgress(job.progress, job.phase);
+  setBusy(isActiveJob(job));
+
+  if (isActiveJob(job)) {
+    return;
+  }
+
+  stopJobUpdates();
+  setBusy(false);
+  setStatus(
+    job.status === "done"
+      ? "Done"
+      : job.status === "cancelled"
+        ? "Cancelled"
+        : "Failed",
+    job.status,
+  );
+  setProgress(job.progress, job.phase);
+
+  if (job.status === "failed") {
+    const lines = (job.logs || "").split(/\r?\n/).filter(Boolean);
+    els.processNote.textContent = lines.at(-1) || "Process failed";
+  }
+
+  if (job.status === "cancelled") {
+    els.processNote.textContent = `${job.kind} cancelled`;
+  }
+
+  if (job.status !== "done") {
+    return;
+  }
+
+  const data = await api("/api/state");
+  state.project = data.project;
+  state.thumbnails = data.thumbnails || [];
+  renderProject(data);
+
+  if (job.kind === "analyze" && options.generatePreviewsAfterAnalyze) {
+    els.processNote.textContent = "Analysis complete. Generating previews...";
+    generateThumbnails().catch((error) => {
+      setStatus("Failed", "failed");
+      els.processNote.textContent = error.message;
+    }).finally(() => {
+      setBusy(isActiveJob());
+    });
+    return;
+  }
+
+  if (job.kind === "render" && els.clearAfterRender.checked) {
+    const result = await clearWorkspace({skipConfirm: true});
+    if (!result) {
+      return;
+    }
+    setStatus("Done", "done");
+    setProgress(100, "Render complete");
+    els.processNote.textContent = `Render complete. Cleared source and highlights. Removed ${
+      result.removed
+    } managed file${result.removed === 1 ? "" : "s"} (${formatBytes(
+      result.bytes,
+    )}).`;
+  }
+};
+
+const followJobWithPolling = (id, options = {}) => {
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(async () => {
+    const job = await api(`/api/jobs/${id}`);
+    await applyJobUpdate(job, options);
+  }, 700);
+};
+
+const followJob = (id, options = {}) => {
+  stopJobUpdates();
+  setBusy(true);
+
+  if (!("EventSource" in window)) {
+    followJobWithPolling(id, options);
+    return;
+  }
+
+  const source = new EventSource(`/api/jobs/${encodeURIComponent(id)}/events`);
+  state.jobEvents = source;
+
+  source.addEventListener("job", (event) => {
+    const job = JSON.parse(event.data);
+    applyJobUpdate(job, options).catch((error) => {
+      setStatus("Failed", "failed");
+      els.processNote.textContent = error.message;
+    });
+  });
+
+  source.onerror = () => {
+    if (state.jobEvents !== source) {
+      return;
+    }
+
+    source.close();
+    state.jobEvents = null;
+
+    if (isActiveJob()) {
+      els.processNote.textContent = "Live progress disconnected. Falling back to polling.";
+      followJobWithPolling(id, options);
+    }
+  };
+};
+
+els.analyzeBtn.addEventListener("click", async () => {
+  try {
+    els.processNote.textContent = "Starting analysis...";
+    const job = await api("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        input: els.sourcePath.value,
+        clipDuration: Number(els.clipDuration.value),
+        maxClips: Number(els.maxClips.value),
+        sceneThreshold: Number(els.sceneThreshold.value),
+      }),
+    });
+    state.activeJob = job;
+    setStatus("Analyze", "running");
+    setProgress(job.progress, job.phase);
+    followJob(job.id, {generatePreviewsAfterAnalyze: true});
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  }
+});
+
+els.cancelJobBtn.addEventListener("click", async () => {
+  if (!isActiveJob()) {
+    return;
+  }
+
+  try {
+    els.cancelJobBtn.disabled = true;
+    setStatus("Cancelling", "cancelling");
+    setProgress(state.activeJob.progress, `Cancelling ${state.activeJob.kind}`);
+    const result = await api("/api/cancel-job", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    if (!result.activeJob) {
+      state.activeJob = null;
+      setBusy(false);
+      setStatus("Idle");
+      setProgress(0, "Ready");
+      return;
+    }
+
+    state.activeJob = result.activeJob;
+    setBusy(isActiveJob());
+    followJob(result.activeJob.id);
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+    setBusy(isActiveJob());
+  }
+});
+
+els.chooseFileBtn.addEventListener("click", async () => {
+  try {
+    setBusy(true);
+    setStatus("Choosing", "running");
+    els.processNote.textContent = "Choose the source video file";
+    const result = await api("/api/choose-source", {
+      method: "POST",
+      body: JSON.stringify({current: els.sourcePath.value}),
+    });
+
+    if (result.cancelled) {
+      setStatus("Idle");
+      els.processNote.textContent = "Source path unchanged";
+      return;
+    }
+
+    resetProjectForNewSource(result.src);
+    setStatus("Ready", "done");
+    setProgress(100, "Source selected");
+    els.processNote.textContent = "Source selected without copying";
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.uploadStatus.textContent = "";
+    els.processNote.textContent = error.message;
+  } finally {
+    setBusy(isActiveJob());
+  }
+});
+
+els.chooseOutputBtn.addEventListener("click", async () => {
+  try {
+    setBusy(true);
+    setStatus("Choosing", "running");
+    els.processNote.textContent = "Choose where to save hook.mp4";
+    const result = await api("/api/choose-output", {
+      method: "POST",
+      body: JSON.stringify({current: els.outputPath.value}),
+    });
+
+    if (result.cancelled) {
+      setStatus("Idle");
+      els.processNote.textContent = "Output path unchanged";
+      return;
+    }
+
+    els.outputPath.value = result.outputPath;
+    setStatus("Ready", "done");
+    els.processNote.textContent = "Output path selected";
+    updateVideoSources({
+      outputPath: result.outputPath,
+      outputExists: result.outputExists,
+    });
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  } finally {
+    setBusy(isActiveJob());
+  }
+});
+
+els.sourceFullscreenBtn.addEventListener("click", () => {
+  openFullscreen(els.sourceVideo).catch((error) => {
+    els.processNote.textContent = error.message;
+  });
+});
+
+els.outputFullscreenBtn.addEventListener("click", () => {
+  openFullscreen(els.outputVideo).catch((error) => {
+    els.processNote.textContent = error.message;
+  });
+});
+
+els.clearWorkspaceBtn.addEventListener("click", () => {
+  clearWorkspace().catch(() => {});
+});
+
+els.clearAfterRender.addEventListener("change", () => {
+  if (!els.clearAfterRender.checked) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "After each render, clear the current source, highlights, project data, and app-created workspace files? The rendered hook file stays saved.",
+  );
+  if (!confirmed) {
+    els.clearAfterRender.checked = false;
+  }
+});
+
+els.renderMode.addEventListener("change", () => {
+  syncRenderModeControls();
+});
+
+els.saveProjectBtn.addEventListener("click", async () => {
+  try {
+    readRowsIntoProject();
+    const data = await api("/api/project", {
+      method: "POST",
+      body: JSON.stringify(state.project),
+    });
+    state.project = data.project;
+    state.thumbnails = data.thumbnails || [];
+    renderProject();
+    await generateThumbnails();
+    setStatus("Saved", "done");
+    setProgress(100, "Project saved");
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  }
+});
+
+els.renderFinalBtn.addEventListener("click", () => {
+  startRender().catch((error) => {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  });
+});
+
+els.reloadBtn.addEventListener("click", () => {
+  loadState().catch((error) => {
+    els.processNote.textContent = error.message;
+  });
+});
+
+els.addHighlightBtn.addEventListener("click", () => {
+  if (!state.project) {
+    state.project = {
+      src: els.sourcePath.value.trim(),
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      title: els.titleText.value.trim() || undefined,
+      highlights: [],
+    };
+  } else {
+    readRowsIntoProject();
+  }
+
+  const start =
+    state.project.highlights.length === 0
+      ? 0
+      : state.project.highlights.reduce(
+          (max, highlight) => Math.max(max, highlight.start + highlight.duration),
+          0,
+        );
+
+  state.project.highlights.push({
+    start: Number(start.toFixed(2)),
+    duration: 3,
+  });
+  state.thumbnails = [];
+  renderProject();
+});
+
+els.highlightRows.addEventListener("click", (event) => {
+  const preview = event.target.closest("button[data-preview]");
+  if (preview) {
+    previewHighlight(Number(preview.dataset.preview)).catch((error) => {
+      els.processNote.textContent = error.message;
+    });
+    return;
+  }
+
+  const button = event.target.closest("button[data-remove]");
+  if (!button || !state.project) {
+    return;
+  }
+
+  readRowsIntoProject();
+  state.project.highlights.splice(Number(button.dataset.remove), 1);
+  state.thumbnails = [];
+  renderProject();
+});
+
+els.highlightRows.addEventListener("input", () => {
+  readRowsIntoProject();
+  state.thumbnails = [];
+  renderMetrics();
+});
+
+loadState().catch((error) => {
+  setStatus("Failed", "failed");
+  els.processNote.textContent = error.message;
+});
