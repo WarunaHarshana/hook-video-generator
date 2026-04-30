@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Easing,
   interpolate,
   OffthreadVideo,
@@ -18,6 +19,17 @@ export type HighlightSegment = {
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
 
+export type MusicSettings = {
+  src: string;
+  start: number;
+  duration: number;
+  volume: number;
+  sourceVolume: number;
+  fadeSeconds: number;
+  loop: boolean;
+  enabled: boolean;
+};
+
 export type HookVideoInputProps = {
   src: string;
   width: number;
@@ -27,6 +39,7 @@ export type HookVideoInputProps = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  music?: MusicSettings;
   highlights: HighlightSegment[];
   title?: string;
 };
@@ -44,7 +57,7 @@ const secondsToFrames = (seconds: number, fps: number) => {
   return Math.max(0, Math.round(seconds * fps));
 };
 
-const resolveVideoSrc = (src: string) => {
+const resolveMediaSrc = (src: string) => {
   if (/^(https?:|data:|blob:|\/)/i.test(src)) {
     return src;
   }
@@ -130,10 +143,11 @@ const SourceClip: React.FC<{
   src: string;
   index: number;
   reframeMode: ReframeMode;
-}> = ({clip, src, index, reframeMode}) => {
+  sourceVolume: number;
+}> = ({clip, src, index, reframeMode, sourceVolume}) => {
   const frame = useCurrentFrame();
   const {fps, width, height} = useVideoConfig();
-  const videoSrc = resolveVideoSrc(src);
+  const videoSrc = resolveMediaSrc(src);
   const visualOpacity = clipFade(frame, clip.durationInFrames);
   const trimBefore = secondsToFrames(clip.start, fps);
   const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
@@ -164,6 +178,7 @@ const SourceClip: React.FC<{
         src={videoSrc}
         trimBefore={trimBefore}
         trimAfter={trimAfter}
+        volume={sourceVolume}
         style={{
           width: "100%",
           height: "100%",
@@ -259,12 +274,52 @@ const ProgressBar: React.FC = () => {
   );
 };
 
+const BackgroundMusic: React.FC<{
+  music: MusicSettings;
+}> = ({music}) => {
+  const {fps, durationInFrames} = useVideoConfig();
+  const trimBefore = secondsToFrames(Math.max(0, music.start), fps);
+  const trimAfter = secondsToFrames(
+    Math.max(0, music.start) + Math.max(0.01, music.duration),
+    fps,
+  );
+  const fadeFrames = Math.max(1, secondsToFrames(music.fadeSeconds || 0.7, fps));
+  const musicSrc = resolveMediaSrc(music.src);
+
+  return (
+    <Audio
+      src={musicSrc}
+      trimBefore={trimBefore}
+      trimAfter={trimAfter}
+      loop={music.loop}
+      volume={(frame) => {
+        const fadeIn = interpolate(frame, [0, fadeFrames], [0, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+        });
+        const fadeOut = interpolate(
+          frame,
+          [durationInFrames - fadeFrames, durationInFrames],
+          [1, 0],
+          {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          },
+        );
+
+        return Math.max(0, music.volume) * Math.min(fadeIn, fadeOut);
+      }}
+    />
+  );
+};
+
 export const HookVideo: React.FC<HookVideoInputProps> = ({
   src,
   highlights,
   title = "",
   outputAspectRatio = "source",
   reframeMode,
+  music,
 }) => {
   const {fps, durationInFrames} = useVideoConfig();
   const timeline = buildTimeline(highlights, fps);
@@ -274,6 +329,10 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
     : 0;
   const resolvedReframeMode =
     reframeMode ?? (outputAspectRatio === "source" ? "none" : "auto");
+  const activeMusic = music?.enabled && music.src ? music : null;
+  const sourceVolume = activeMusic
+    ? clamp(Number(activeMusic.sourceVolume), 0, 1)
+    : 1;
 
   if (!src) {
     return (
@@ -302,9 +361,11 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
             src={src}
             index={index}
             reframeMode={resolvedReframeMode}
+            sourceVolume={sourceVolume}
           />
         </Sequence>
       ))}
+      {activeMusic ? <BackgroundMusic music={activeMusic} /> : null}
       {titleFrames > 0 ? (
         <Sequence from={0} durationInFrames={titleFrames}>
           <OpeningTitle title={cleanTitle} />

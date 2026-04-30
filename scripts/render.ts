@@ -16,7 +16,7 @@ type LoadedProject = {
   cleanup: () => Promise<void>;
 };
 
-type ServedLocalSource = {
+type ServedLocalMedia = {
   src: string;
   cleanup: () => Promise<void>;
 };
@@ -80,6 +80,12 @@ const contentTypes = new Map<string, string>([
   [".mkv", "video/x-matroska"],
   [".avi", "video/x-msvideo"],
   [".m4v", "video/mp4"],
+  [".mp3", "audio/mpeg"],
+  [".wav", "audio/wav"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".flac", "audio/flac"],
+  [".ogg", "audio/ogg"],
 ]);
 
 const writeResponseHeaders = (
@@ -171,28 +177,29 @@ const serveVideoResponse = (
   createReadStream(filePath, {start, end}).pipe(res);
 };
 
-const serveLocalSource = async (
+const serveLocalMedia = async (
   src: string,
   projectPath: string,
-): Promise<ServedLocalSource> => {
-  const sourcePath = path.isAbsolute(src)
+  label: string,
+): Promise<ServedLocalMedia> => {
+  const mediaPath = path.isAbsolute(src)
     ? src
     : path.resolve(path.dirname(projectPath), src);
 
-  if (!existsSync(sourcePath)) {
-    throw new Error(`Source video does not exist: ${sourcePath}`);
+  if (!existsSync(mediaPath)) {
+    throw new Error(`${label} file does not exist: ${mediaPath}`);
   }
 
   const token = Math.random().toString(36).slice(2);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (url.pathname !== "/source" || url.searchParams.get("token") !== token) {
+    if (url.pathname !== "/media" || url.searchParams.get("token") !== token) {
       writeResponseHeaders(res, 404);
       res.end("Not found");
       return;
     }
 
-    serveVideoResponse(req, res, sourcePath);
+    serveVideoResponse(req, res, mediaPath);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -209,8 +216,8 @@ const serveLocalSource = async (
     throw new Error("Could not start local source video server.");
   }
 
-  const srcUrl = `http://127.0.0.1:${address.port}/source?token=${token}`;
-  process.stdout.write(`Streaming source directly from ${sourcePath}\n`);
+  const srcUrl = `http://127.0.0.1:${address.port}/media?token=${token}`;
+  process.stdout.write(`Streaming ${label} directly from ${mediaPath}\n`);
 
   return {
     src: srcUrl,
@@ -237,23 +244,30 @@ const loadProject = async (projectPath: string): Promise<LoadedProject> => {
     throw new Error("project.json must include at least one highlight.");
   }
 
-  if (isRemoteSrc(parsed.src)) {
-    return {
-      inputProps: parsed,
-      publicDir: null,
-      cleanup: async () => undefined,
-    };
-  }
-
-  const served = await serveLocalSource(parsed.src, projectPath);
+  const servedSource = isRemoteSrc(parsed.src)
+    ? null
+    : await serveLocalMedia(parsed.src, projectPath, "source");
+  const servedMusic =
+    parsed.music?.src && !isRemoteSrc(parsed.music.src)
+      ? await serveLocalMedia(parsed.music.src, projectPath, "music")
+      : null;
 
   return {
     inputProps: {
       ...parsed,
-      src: served.src,
+      src: servedSource?.src ?? parsed.src,
+      music: parsed.music
+        ? {
+            ...parsed.music,
+            src: servedMusic?.src ?? parsed.music.src,
+          }
+        : undefined,
     },
     publicDir: null,
-    cleanup: served.cleanup,
+    cleanup: async () => {
+      await servedSource?.cleanup();
+      await servedMusic?.cleanup();
+    },
   };
 };
 

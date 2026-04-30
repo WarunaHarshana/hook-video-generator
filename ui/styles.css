@@ -34,6 +34,11 @@ select {
   letter-spacing: 0;
 }
 
+audio {
+  display: block;
+  width: 100%;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -180,6 +185,29 @@ select:focus {
 
 .output-reframe {
   min-height: 40px;
+}
+
+.music-card {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fbfc;
+}
+
+.music-options {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.music-status {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .button-row {

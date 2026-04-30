@@ -14,6 +14,7 @@ const defaultProps: HookVideoInputProps = {
   sourceHeight: DEFAULT_HEIGHT,
   outputAspectRatio: "source",
   reframeMode: "none",
+  music: undefined,
   title: "",
   highlights: [
     {

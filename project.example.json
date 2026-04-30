@@ -7,6 +7,16 @@
   "sourceHeight": 1080,
   "outputAspectRatio": "source",
   "reframeMode": "none",
+  "music": {
+    "src": "C:\\Music\\song.mp3",
+    "start": 32,
+    "duration": 9,
+    "volume": 0.35,
+    "sourceVolume": 0.75,
+    "fadeSeconds": 1,
+    "loop": true,
+    "enabled": false
+  },
   "duration": 120,
   "title": "",
   "highlights": [

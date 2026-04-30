@@ -29,6 +29,17 @@ const els = {
   chooseOutputBtn: document.querySelector("#chooseOutputBtn"),
   outputAspectRatio: document.querySelector("#outputAspectRatio"),
   autoReframe: document.querySelector("#autoReframe"),
+  musicPath: document.querySelector("#musicPath"),
+  chooseMusicBtn: document.querySelector("#chooseMusicBtn"),
+  analyzeMusicBtn: document.querySelector("#analyzeMusicBtn"),
+  removeMusicBtn: document.querySelector("#removeMusicBtn"),
+  musicPreview: document.querySelector("#musicPreview"),
+  musicStart: document.querySelector("#musicStart"),
+  musicDuration: document.querySelector("#musicDuration"),
+  musicVolume: document.querySelector("#musicVolume"),
+  sourceVolume: document.querySelector("#sourceVolume"),
+  musicEnabled: document.querySelector("#musicEnabled"),
+  musicStatus: document.querySelector("#musicStatus"),
   renderMode: document.querySelector("#renderMode"),
   glMode: document.querySelector("#glMode"),
   concurrency: document.querySelector("#concurrency"),
@@ -91,6 +102,14 @@ const setBusy = (busy) => {
   els.chooseOutputBtn.disabled = busy;
   els.outputAspectRatio.disabled = busy;
   els.autoReframe.disabled = busy || els.outputAspectRatio.value === "source";
+  els.chooseMusicBtn.disabled = busy;
+  els.analyzeMusicBtn.disabled = busy || !state.project || !els.musicPath.value.trim();
+  els.removeMusicBtn.disabled = busy || !state.project?.music;
+  els.musicStart.disabled = busy || !els.musicPath.value.trim();
+  els.musicDuration.disabled = busy || !els.musicPath.value.trim();
+  els.musicVolume.disabled = busy || !els.musicPath.value.trim();
+  els.sourceVolume.disabled = busy || !els.musicPath.value.trim();
+  els.musicEnabled.disabled = busy || !els.musicPath.value.trim();
   els.renderMode.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
@@ -170,6 +189,75 @@ const applyOutputFormatToProject = () => {
   };
 };
 
+const musicFromControls = () => {
+  const src = els.musicPath.value.trim();
+  if (!src) {
+    return undefined;
+  }
+
+  return {
+    ...(state.project?.music || {}),
+    src,
+    start: Math.max(0, Number(els.musicStart.value) || 0),
+    duration: Math.max(0.1, Number(els.musicDuration.value) || totalHighlightSeconds() || 15),
+    volume: Math.max(0, Math.min(Number(els.musicVolume.value) || 0, 1)),
+    sourceVolume: Math.max(0, Math.min(Number(els.sourceVolume.value) || 0, 1)),
+    fadeSeconds: state.project?.music?.fadeSeconds ?? 1,
+    loop: true,
+    enabled: els.musicEnabled.checked,
+  };
+};
+
+const applyMusicToProject = () => {
+  if (!state.project) {
+    return;
+  }
+
+  state.project = {
+    ...state.project,
+    music: musicFromControls(),
+  };
+};
+
+const musicSummary = (music) => {
+  if (!music?.src) {
+    return "No music selected";
+  }
+
+  const score = Number(music.detected?.score);
+  const scoreText = Number.isFinite(score) ? ` · score ${score.toFixed(2)}` : "";
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}`;
+};
+
+const updateMusicPreview = () => {
+  const src = els.musicPath.value.trim();
+  if (!src) {
+    clearVideo(els.musicPreview);
+    els.musicPreview.dataset.sourcePath = "";
+    els.musicStatus.textContent = "No music selected";
+    return;
+  }
+
+  if (els.musicPreview.dataset.sourcePath !== src) {
+    els.musicPreview.dataset.sourcePath = src;
+    setVideoSource(
+      els.musicPreview,
+      `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
+    );
+  }
+  els.musicStatus.textContent = musicSummary(musicFromControls());
+};
+
+const renderMusicControls = (music) => {
+  els.musicPath.value = music?.src || "";
+  els.musicStart.value = music ? music.start : 0;
+  els.musicDuration.value = music ? music.duration : Math.max(3, totalHighlightSeconds() || 15);
+  els.musicVolume.value = music ? music.volume : 0.35;
+  els.sourceVolume.value = music ? music.sourceVolume : 0.75;
+  els.musicEnabled.checked = music ? music.enabled !== false : false;
+  updateMusicPreview();
+};
+
 const syncRenderModeControls = () => {
   if (els.renderMode.value === "cpu") {
     els.glMode.value = "swiftshader";
@@ -242,6 +330,7 @@ const resetProjectForNewSource = (src) => {
   els.uploadStatus.textContent = src ? "Using original file path" : "";
   renderMetrics();
   renderHighlights();
+  renderMusicControls(undefined);
   clearVideo(els.outputVideo);
   els.outputMeta.textContent = "-";
 
@@ -459,6 +548,7 @@ const readRowsIntoProject = () => {
     ),
   };
   applyOutputFormatToProject();
+  applyMusicToProject();
 };
 
 const renderProject = (serverState = {}) => {
@@ -472,6 +562,7 @@ const renderProject = (serverState = {}) => {
       (project.outputAspectRatio || "source") !== "source" &&
       project.reframeMode !== "none";
     syncOutputFormatControls();
+    renderMusicControls(project.music);
     if (project.highlights.length > 0) {
       els.clipDuration.value = project.highlights[0].duration;
     }
@@ -482,6 +573,7 @@ const renderProject = (serverState = {}) => {
     els.outputAspectRatio.value = "source";
     els.autoReframe.checked = false;
     syncOutputFormatControls();
+    renderMusicControls(undefined);
   }
 
   renderMetrics();
@@ -763,6 +855,78 @@ els.chooseOutputBtn.addEventListener("click", async () => {
   }
 });
 
+els.chooseMusicBtn.addEventListener("click", async () => {
+  try {
+    setBusy(true);
+    setStatus("Choosing", "running");
+    els.processNote.textContent = "Choose the music file";
+    const result = await api("/api/choose-music", {
+      method: "POST",
+      body: JSON.stringify({current: els.musicPath.value}),
+    });
+
+    if (result.cancelled) {
+      setStatus("Idle");
+      els.processNote.textContent = "Music path unchanged";
+      return;
+    }
+
+    els.musicPath.value = result.src;
+    els.musicDuration.value = Math.max(3, totalHighlightSeconds() || 15);
+    els.musicEnabled.checked = true;
+    applyMusicToProject();
+    updateMusicPreview();
+    setStatus("Ready", "done");
+    els.processNote.textContent = "Music selected. Analyze it to find the strongest part.";
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  } finally {
+    setBusy(isActiveJob());
+  }
+});
+
+els.analyzeMusicBtn.addEventListener("click", async () => {
+  try {
+    if (!state.project) {
+      throw new Error("Analyze hooks before analyzing music.");
+    }
+
+    applyMusicToProject();
+    await api("/api/project", {
+      method: "POST",
+      body: JSON.stringify(state.project),
+    });
+    els.processNote.textContent = "Starting music analysis...";
+    const job = await api("/api/analyze-music", {
+      method: "POST",
+      body: JSON.stringify({input: els.musicPath.value}),
+    });
+    state.activeJob = job;
+    setStatus("Music", "running");
+    setProgress(job.progress, job.phase);
+    followJob(job.id);
+  } catch (error) {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  }
+});
+
+els.removeMusicBtn.addEventListener("click", async () => {
+  if (state.project) {
+    state.project = {...state.project, music: undefined};
+    await api("/api/project", {
+      method: "POST",
+      body: JSON.stringify(state.project),
+    }).catch((error) => {
+      els.processNote.textContent = error.message;
+    });
+  }
+
+  renderMusicControls(undefined);
+  setBusy(isActiveJob());
+});
+
 els.sourceFullscreenBtn.addEventListener("click", () => {
   openFullscreen(els.sourceVideo).catch((error) => {
     els.processNote.textContent = error.message;
@@ -805,6 +969,26 @@ els.outputAspectRatio.addEventListener("change", () => {
 
 els.autoReframe.addEventListener("change", () => {
   applyOutputFormatToProject();
+});
+
+[
+  els.musicPath,
+  els.musicStart,
+  els.musicDuration,
+  els.musicVolume,
+  els.sourceVolume,
+  els.musicEnabled,
+].forEach((input) => {
+  input.addEventListener("input", () => {
+    applyMusicToProject();
+    updateMusicPreview();
+    setBusy(isActiveJob());
+  });
+  input.addEventListener("change", () => {
+    applyMusicToProject();
+    updateMusicPreview();
+    setBusy(isActiveJob());
+  });
 });
 
 els.saveProjectBtn.addEventListener("click", async () => {
@@ -860,6 +1044,7 @@ els.addHighlightBtn.addEventListener("click", () => {
         outputAspectRatio === "source" || !els.autoReframe.checked
           ? "none"
           : "auto",
+      music: musicFromControls(),
       title: els.titleText.value.trim() || undefined,
       highlights: [],
     };

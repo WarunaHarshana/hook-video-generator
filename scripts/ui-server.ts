@@ -19,6 +19,27 @@ type HighlightSegment = {
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
 
+type MusicSettings = {
+  src: string;
+  start: number;
+  duration: number;
+  volume: number;
+  sourceVolume: number;
+  fadeSeconds: number;
+  loop: boolean;
+  enabled: boolean;
+  detected?: {
+    score?: number;
+    audioDuration?: number;
+    candidates?: Array<{
+      start: number;
+      duration: number;
+      score: number;
+      energy: number;
+    }>;
+  };
+};
+
 type ProjectJson = {
   src: string;
   width: number;
@@ -28,6 +49,7 @@ type ProjectJson = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  music?: MusicSettings;
   duration?: number;
   title?: string;
   highlights: HighlightSegment[];
@@ -46,7 +68,7 @@ type JobStatus = "running" | "cancelling" | "cancelled" | "done" | "failed";
 
 type Job = {
   id: string;
-  kind: "analyze" | "render";
+  kind: "analyze" | "render" | "music";
   status: JobStatus;
   progress: number;
   phase: string;
@@ -76,6 +98,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const uiDir = path.join(rootDir, "ui");
 const uploadsDir = path.join(rootDir, "uploads");
 const thumbnailsDir = path.join(rootDir, ".hook-thumbnails");
+const tempDir = path.join(rootDir, ".tmp");
 const projectPath = path.join(rootDir, "project.json");
 const manifestPath = path.join(rootDir, ".hook-workspace-manifest.json");
 const defaultOutputPath = path.join(rootDir, "hook.mp4");
@@ -100,6 +123,12 @@ const contentTypes = new Map<string, string>([
   [".mov", "video/quicktime"],
   [".webm", "video/webm"],
   [".mkv", "video/x-matroska"],
+  [".mp3", "audio/mpeg"],
+  [".wav", "audio/wav"],
+  [".m4a", "audio/mp4"],
+  [".aac", "audio/aac"],
+  [".flac", "audio/flac"],
+  [".ogg", "audio/ogg"],
 ]);
 
 const sendJson = (
@@ -156,6 +185,34 @@ const normalizeReframeMode = (value: unknown): ReframeMode => {
   return typeof value === "string" && reframeModes.has(value as ReframeMode)
     ? (value as ReframeMode)
     : "none";
+};
+
+const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
+  const parsed = normalizeNumber(value, fallback);
+  return Math.min(Math.max(parsed, min), max);
+};
+
+const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as Partial<MusicSettings>;
+  if (!input.src?.trim()) {
+    return undefined;
+  }
+
+  return {
+    src: input.src.trim(),
+    start: Math.max(0, normalizeNumber(input.start, 0)),
+    duration: Math.max(0.1, normalizeNumber(input.duration, 15)),
+    volume: clampNumber(input.volume, 0, 1, 0.35),
+    sourceVolume: clampNumber(input.sourceVolume, 0, 1, 0.75),
+    fadeSeconds: clampNumber(input.fadeSeconds, 0, 10, 1),
+    loop: Boolean(input.loop),
+    enabled: input.enabled !== false,
+    detected: input.detected,
+  };
 };
 
 const resolveWorkspacePath = (value: string | undefined, fallback: string) => {
@@ -651,6 +708,45 @@ try {
   return String(stdout).trim();
 };
 
+const chooseMusicPath = async (currentPath: string | undefined) => {
+  const current = currentPath?.trim();
+  const resolved =
+    current && path.isAbsolute(current) ? current : path.join(rootDir, "");
+  const initialDirectory =
+    current && existsSync(resolved) ? path.dirname(resolved) : rootDir;
+  const fileName = current && existsSync(resolved) ? path.basename(resolved) : "";
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+${dialogOwnerScript}
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Choose music file'
+$dialog.Filter = 'Audio and video files (*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm)|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm|All files (*.*)|*.*'
+$dialog.Multiselect = $false
+$dialog.CheckFileExists = $true
+$dialog.InitialDirectory = ${powershellString(initialDirectory)}
+$dialog.FileName = ${powershellString(fileName)}
+try {
+  if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $dialog.FileName
+  }
+} finally {
+  $dialog.Dispose()
+  $owner.Close()
+  $owner.Dispose()
+}
+`;
+
+  const {stdout} = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script],
+    {maxBuffer: 1024 * 1024, windowsHide: true},
+  );
+
+  return String(stdout).trim();
+};
+
 const loadProject = async () => {
   if (!existsSync(projectPath)) {
     return null;
@@ -672,6 +768,7 @@ const loadProject = async () => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    music: normalizeMusicSettings(input.music),
   };
 };
 
@@ -712,6 +809,7 @@ const validateProject = (input: ProjectJson): ProjectJson => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    music: normalizeMusicSettings(input.music),
     duration: normalizeNumber(input.duration, 0) || undefined,
     title: input.title?.trim() || undefined,
     highlights,
@@ -894,7 +992,12 @@ const startJob = ({
     kind,
     status: "running",
     progress: 0,
-    phase: kind === "analyze" ? "Preparing analysis" : "Preparing render",
+    phase:
+      kind === "analyze"
+        ? "Preparing analysis"
+        : kind === "music"
+          ? "Preparing music analysis"
+          : "Preparing render",
     logs: "",
     startedAt: new Date().toISOString(),
     child,
@@ -916,7 +1019,12 @@ const startJob = ({
     } else if (code === 0) {
       job.status = "done";
       job.progress = 100;
-      job.phase = kind === "analyze" ? "Analysis complete" : "Render complete";
+      job.phase =
+        kind === "analyze"
+          ? "Analysis complete"
+          : kind === "music"
+            ? "Music analysis complete"
+            : "Render complete";
       try {
         job.result = await result();
       } catch (error) {
@@ -1116,6 +1224,24 @@ const routeApi = async (
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/choose-music") {
+    const body = await parseBody<{current?: string}>(req);
+    const src = await chooseMusicPath(body.current);
+
+    if (!src) {
+      sendJson(res, 200, {cancelled: true});
+      return;
+    }
+
+    sendJson(res, 200, {
+      cancelled: false,
+      src,
+      name: path.basename(src),
+      size: existsSync(src) ? statSync(src).size : 0,
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/cancel-job") {
     const job = await cancelActiveJob();
     if (!job) {
@@ -1172,6 +1298,68 @@ const routeApi = async (
           }
 
           return {project: await loadProject(), projectPath};
+        },
+      }),
+    );
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/analyze-music") {
+    const body = await parseBody<{input?: string}>(req);
+    const input = body.input?.trim();
+    const project = await loadProject();
+
+    if (!input) {
+      sendJson(res, 400, {error: "Music file path is required."});
+      return;
+    }
+
+    if (!project) {
+      sendJson(res, 400, {error: "Analyze hooks before analyzing music."});
+      return;
+    }
+
+    const targetDuration = project.highlights.reduce(
+      (sum, highlight) => sum + Number(highlight.duration || 0),
+      0,
+    );
+    await mkdir(tempDir, {recursive: true});
+    const resultPath = path.join(tempDir, "music-analysis.json");
+    const args = [
+      "--input",
+      input,
+      "--out",
+      resultPath,
+      "--target-duration",
+      String(Math.max(3, targetDuration)),
+    ];
+
+    sendJson(
+      res,
+      202,
+      startJob({
+        kind: "music",
+        script: "scripts/analyze-music.ts",
+        args,
+        result: async () => {
+          const result = JSON.parse(await readFile(resultPath, "utf8")) as {
+            music?: MusicSettings;
+          };
+          const currentProject = await loadProject();
+          const music = normalizeMusicSettings(result.music);
+
+          if (!currentProject || !music) {
+            throw new Error("Music analysis finished but no result was found.");
+          }
+
+          const nextProject = validateProject({
+            ...currentProject,
+            music,
+          });
+          await writeFile(projectPath, `${JSON.stringify(nextProject, null, 2)}\n`);
+          await registerCreatedFile(projectPath, "project");
+
+          return {project: nextProject, music};
         },
       }),
     );

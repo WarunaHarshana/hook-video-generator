@@ -7,6 +7,7 @@
     "studio": "remotion studio src/index.ts",
     "ui": "tsx scripts/ui-server.ts",
     "analyze": "tsx scripts/analyze.ts",
+    "music": "tsx scripts/analyze-music.ts",
     "render": "tsx scripts/render.ts",
     "typecheck": "tsc --noEmit"
   },
