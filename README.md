@@ -108,12 +108,6 @@ These are intentionally ignored:
 - source/rendered video files
 - UI server logs
 
-## Privacy Notes
-
-This app is designed for local use. Source video paths stay on your machine, thumbnails are generated locally, and renders are written to your local output path.
-
-Do not commit source videos, generated hook videos, thumbnails, or local `project.json` files to GitHub.
-
 ## Scripts
 
 ```bash
