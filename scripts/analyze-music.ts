@@ -235,10 +235,11 @@ const main = async () => {
   const audioDuration = await probeDuration(input);
   const effectiveDuration = Math.max(3, Math.min(targetDuration, audioDuration));
 
-  process.stdout.write("PROGRESS 35 Decoding music energy\n");
+  process.stdout.write("PROGRESS 25 Preparing audio decode\n");
+  process.stdout.write("PROGRESS 40 Measuring music energy\n");
   const pcm = await decodeAudio(input);
 
-  process.stdout.write("PROGRESS 70 Ranking music hooks\n");
+  process.stdout.write("PROGRESS 75 Ranking the strongest music section\n");
   const candidates = rankCandidates(
     rmsWindows(pcm),
     audioDuration,
@@ -268,6 +269,7 @@ const main = async () => {
     },
   };
 
+  process.stdout.write("PROGRESS 90 Saving music selection\n");
   await writeFile(out, `${JSON.stringify(result, null, 2)}\n`);
   process.stdout.write("PROGRESS 100 Music analysis complete\n");
 };

@@ -147,6 +147,11 @@ const setMusicProgress = (progress = 0, phase = "Music ready") => {
   els.musicProgressFill.style.width = `${percent}%`;
 };
 
+const setMusicNotice = (phase, message, progress = 0) => {
+  setMusicProgress(progress, phase);
+  els.musicStatus.textContent = message;
+};
+
 const formatBytes = (bytes) => {
   const value = Number(bytes);
   if (!Number.isFinite(value) || value <= 0) {
@@ -310,7 +315,43 @@ const renderMusicControls = (music) => {
   els.sourceVolume.value = music ? music.sourceVolume : 0.75;
   els.musicEnabled.checked = music ? music.enabled !== false : false;
   updateMusicPreview();
-  setMusicProgress(music?.detected ? 100 : 0, music?.detected ? "Music analyzed" : "Music ready");
+  if (music?.detected) {
+    setMusicProgress(100, "Music analyzed");
+  } else {
+    setMusicProgress(0, "Music ready");
+  }
+};
+
+const refreshMusicReadiness = () => {
+  const musicSource = getMusicSource();
+  if (!musicSource) {
+    setMusicNotice("Music ready", "No music selected", 0);
+    return;
+  }
+
+  if (isYoutubeMusicSource(musicSource)) {
+    setMusicNotice(
+      "Local music file needed",
+      "YouTube links are not direct music files. Choose a local music file instead.",
+      0,
+    );
+    return;
+  }
+
+  if (!state.project || !state.project.highlights?.length || totalHighlightSeconds() <= 0) {
+    setMusicNotice(
+      "Analyze hooks first",
+      "Music selected. Analyze hooks first so the app knows the final hook duration.",
+      0,
+    );
+    return;
+  }
+
+  setMusicNotice(
+    "Music ready",
+    "Music selected. Click Analyze Music to find the strongest part.",
+    0,
+  );
 };
 
 const syncRenderModeControls = () => {
@@ -744,7 +785,7 @@ const applyJobUpdate = async (job, options = {}) => {
 
   if (job.kind === "music") {
     setMusicProgress(100, "Music analysis complete");
-    els.musicStatus.textContent = "Music section selected";
+    els.musicStatus.textContent = "Strongest music section selected for the final hook.";
     return;
   }
 
@@ -811,7 +852,11 @@ const followJob = (id, options = {}) => {
     state.jobEvents = null;
 
     if (isActiveJob()) {
-      els.processNote.textContent = "Live progress disconnected. Falling back to polling.";
+      if (state.activeJob?.kind === "music") {
+        els.musicStatus.textContent = "Live music progress disconnected. Falling back to polling.";
+      } else {
+        els.processNote.textContent = "Live progress disconnected. Falling back to polling.";
+      }
       followJobWithPolling(id, options);
     }
   };
@@ -959,9 +1004,11 @@ els.chooseMusicBtn.addEventListener("click", async () => {
     els.musicEnabled.checked = true;
     applyMusicToProject();
     updateMusicPreview();
-    setMusicProgress(0, "Music ready");
+    refreshMusicReadiness();
     setStatus("Ready", "done");
-    els.processNote.textContent = "Music selected. Analyze it to find the strongest part.";
+    els.processNote.textContent = state.project
+      ? "Music selected. Analyze it to find the strongest part."
+      : "Music selected. Analyze hooks first, then analyze music.";
   } catch (error) {
     setStatus("Failed", "failed");
     els.processNote.textContent = error.message;
@@ -973,6 +1020,8 @@ els.chooseMusicBtn.addEventListener("click", async () => {
 els.analyzeMusicBtn.addEventListener("click", async () => {
   try {
     const musicSource = getMusicSource();
+    setMusicNotice("Checking music setup", "Checking music file and hook timeline...", 3);
+
     if (!musicSource) {
       throw new Error("Choose a music file or enter a direct music URL first.");
     }
@@ -983,17 +1032,17 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
       );
     }
 
-    if (!state.project) {
-      throw new Error("Analyze hooks before analyzing music.");
+    if (!state.project || !state.project.highlights?.length || totalHighlightSeconds() <= 0) {
+      throw new Error("Analyze hooks first, then analyze music. Music analysis needs the final hook duration.");
     }
 
+    setMusicNotice("Saving music settings", "Saving music settings before analysis...", 8);
     applyMusicToProject();
     await api("/api/project", {
       method: "POST",
       body: JSON.stringify(state.project),
     });
-    els.musicStatus.textContent = "Starting music analysis...";
-    setMusicProgress(0, "Starting music analysis");
+    setMusicNotice("Starting music analysis", "Sending music analysis job to the backend...", 12);
     const job = await api("/api/analyze-music", {
       method: "POST",
       body: JSON.stringify({input: musicSource}),
@@ -1003,8 +1052,15 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
     setMusicProgress(job.progress, job.phase);
     followJob(job.id);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Music analysis failed.";
+    const phase = message.includes("Analyze hooks")
+      ? "Analyze hooks first"
+      : message.includes("YouTube")
+        ? "Local music file needed"
+        : "Music analysis stopped";
     setStatus("Failed", "failed");
-    els.musicStatus.textContent = error.message;
+    setMusicNotice(phase, message, 0);
+    setBusy(isActiveJob());
   }
 });
 
@@ -1080,11 +1136,17 @@ els.autoReframe.addEventListener("change", () => {
   input.addEventListener("input", () => {
     applyMusicToProject();
     updateMusicPreview();
+    if (input === els.musicPath || input === els.musicUrl) {
+      refreshMusicReadiness();
+    }
     setBusy(isActiveJob());
   });
   input.addEventListener("change", () => {
     applyMusicToProject();
     updateMusicPreview();
+    if (input === els.musicPath || input === els.musicUrl) {
+      refreshMusicReadiness();
+    }
     setBusy(isActiveJob());
   });
 });
