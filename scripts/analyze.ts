@@ -16,6 +16,10 @@ type ProjectJson = {
   width: number;
   height: number;
   fps: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  outputAspectRatio: "source";
+  reframeMode: "none";
   duration: number;
   highlights: HighlightSegment[];
 };
@@ -822,6 +826,10 @@ const main = async () => {
     width: metadata.width,
     height: metadata.height,
     fps: metadata.fps,
+    sourceWidth: metadata.width,
+    sourceHeight: metadata.height,
+    outputAspectRatio: "source",
+    reframeMode: "none",
     duration: metadata.duration,
     highlights,
   };

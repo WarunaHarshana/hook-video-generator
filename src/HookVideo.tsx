@@ -15,11 +15,18 @@ export type HighlightSegment = {
   duration: number;
 };
 
+export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
+export type ReframeMode = "none" | "auto";
+
 export type HookVideoInputProps = {
   src: string;
   width: number;
   height: number;
   fps: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
+  outputAspectRatio?: OutputAspectRatio;
+  reframeMode?: ReframeMode;
   highlights: HighlightSegment[];
   title?: string;
 };
@@ -121,13 +128,35 @@ const fadeInOut = (frame: number, durationInFrames: number, maxFade = 8) => {
 const SourceClip: React.FC<{
   clip: ClipWithTiming;
   src: string;
-}> = ({clip, src}) => {
+  index: number;
+  reframeMode: ReframeMode;
+}> = ({clip, src, index, reframeMode}) => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
+  const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveVideoSrc(src);
   const visualOpacity = clipFade(frame, clip.durationInFrames);
   const trimBefore = secondsToFrames(clip.start, fps);
   const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
+  const autoReframe = reframeMode === "auto";
+  const portraitFrame = width < height;
+  const panOffset = index % 3 === 0 ? -8 : index % 3 === 1 ? 0 : 8;
+  const pan = autoReframe
+    ? interpolate(
+        frame,
+        [0, Math.max(1, clip.durationInFrames - 1)],
+        [50 - panOffset, 50 + panOffset],
+        {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.inOut(Easing.cubic),
+        },
+      )
+    : 50;
+  const scale = interpolate(frame, [0, clip.durationInFrames], [1.015, 1.045], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>
@@ -138,8 +167,14 @@ const SourceClip: React.FC<{
         style={{
           width: "100%",
           height: "100%",
-          objectFit: "contain",
+          objectFit: autoReframe ? "cover" : "contain",
+          objectPosition: autoReframe
+            ? portraitFrame
+              ? `${clamp(pan, 35, 65)}% 50%`
+              : `50% ${clamp(pan, 35, 65)}%`
+            : "50% 50%",
           opacity: visualOpacity,
+          transform: autoReframe ? `scale(${scale})` : undefined,
         }}
       />
       <AbsoluteFill
@@ -228,6 +263,8 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   src,
   highlights,
   title = "",
+  outputAspectRatio = "source",
+  reframeMode,
 }) => {
   const {fps, durationInFrames} = useVideoConfig();
   const timeline = buildTimeline(highlights, fps);
@@ -235,6 +272,8 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   const titleFrames = cleanTitle
     ? Math.min(durationInFrames, Math.round(fps * 2))
     : 0;
+  const resolvedReframeMode =
+    reframeMode ?? (outputAspectRatio === "source" ? "none" : "auto");
 
   if (!src) {
     return (
@@ -258,7 +297,12 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
           durationInFrames={clip.durationInFrames}
           premountFor={Math.min(Math.round(fps), clip.from)}
         >
-          <SourceClip clip={clip} src={src} />
+          <SourceClip
+            clip={clip}
+            src={src}
+            index={index}
+            reframeMode={resolvedReframeMode}
+          />
         </Sequence>
       ))}
       {titleFrames > 0 ? (

@@ -5,6 +5,8 @@ const state = {
   pollTimer: null,
   jobEvents: null,
   previewStopTimer: null,
+  pendingOutputAspectRatio: null,
+  pendingAutoReframe: null,
 };
 
 const els = {
@@ -25,6 +27,8 @@ const els = {
   metrics: document.querySelector("#metrics"),
   outputPath: document.querySelector("#outputPath"),
   chooseOutputBtn: document.querySelector("#chooseOutputBtn"),
+  outputAspectRatio: document.querySelector("#outputAspectRatio"),
+  autoReframe: document.querySelector("#autoReframe"),
   renderMode: document.querySelector("#renderMode"),
   glMode: document.querySelector("#glMode"),
   concurrency: document.querySelector("#concurrency"),
@@ -85,6 +89,8 @@ const setBusy = (busy) => {
   els.analyzeBtn.disabled = busy;
   els.chooseFileBtn.disabled = busy;
   els.chooseOutputBtn.disabled = busy;
+  els.outputAspectRatio.disabled = busy;
+  els.autoReframe.disabled = busy || els.outputAspectRatio.value === "source";
   els.renderMode.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
@@ -114,6 +120,56 @@ const formatBytes = (bytes) => {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 };
 
+const getSourceDimensions = (project = state.project) => {
+  return {
+    width: Math.max(1, Math.round(Number(project?.sourceWidth || project?.width || 1920))),
+    height: Math.max(1, Math.round(Number(project?.sourceHeight || project?.height || 1080))),
+  };
+};
+
+const dimensionsForAspect = (aspectRatio, project = state.project) => {
+  const source = getSourceDimensions(project);
+
+  if (aspectRatio === "9:16") {
+    return {width: 1080, height: 1920};
+  }
+
+  if (aspectRatio === "1:1") {
+    return {width: 1080, height: 1080};
+  }
+
+  if (aspectRatio === "4:5") {
+    return {width: 1080, height: 1350};
+  }
+
+  if (aspectRatio === "16:9") {
+    return {width: 1920, height: 1080};
+  }
+
+  return source;
+};
+
+const applyOutputFormatToProject = () => {
+  if (!state.project) {
+    return;
+  }
+
+  const outputAspectRatio = els.outputAspectRatio.value || "source";
+  const dimensions = dimensionsForAspect(outputAspectRatio, state.project);
+  const source = getSourceDimensions(state.project);
+
+  state.project = {
+    ...state.project,
+    sourceWidth: source.width,
+    sourceHeight: source.height,
+    width: dimensions.width,
+    height: dimensions.height,
+    outputAspectRatio,
+    reframeMode:
+      outputAspectRatio === "source" || !els.autoReframe.checked ? "none" : "auto",
+  };
+};
+
 const syncRenderModeControls = () => {
   if (els.renderMode.value === "cpu") {
     els.glMode.value = "swiftshader";
@@ -123,6 +179,18 @@ const syncRenderModeControls = () => {
 
   els.glMode.disabled = Boolean(state.activeJob && isActiveJob()) ||
     els.renderMode.value === "cpu";
+};
+
+const syncOutputFormatControls = () => {
+  const sourceOutput = els.outputAspectRatio.value === "source";
+  els.autoReframe.disabled = sourceOutput || isActiveJob();
+  if (sourceOutput) {
+    els.autoReframe.checked = false;
+  } else if (!state.project || state.project.outputAspectRatio === "source") {
+    els.autoReframe.checked = true;
+  } else if (state.project.reframeMode !== "none") {
+    els.autoReframe.checked = true;
+  }
 };
 
 const stopJobUpdates = () => {
@@ -254,10 +322,13 @@ const updateVideoSources = (serverState = {}) => {
     setVideoSource(els.sourceVideo, `/api/video?path=${encodeURIComponent(
       state.project.src,
     )}&t=${Date.now()}`);
-    els.sourceMeta.textContent = `${state.project.width}x${state.project.height}`;
+    const source = getSourceDimensions(state.project);
+    els.sourceMeta.textContent = `${source.width}x${source.height}`;
+    els.sourceVideo.style.aspectRatio = `${source.width} / ${source.height}`;
   } else {
     clearVideo(els.sourceVideo);
     els.sourceMeta.textContent = "-";
+    els.sourceVideo.style.aspectRatio = "";
   }
 
   const outputPath = els.outputPath.value.trim() || serverState.outputPath;
@@ -269,10 +340,14 @@ const updateVideoSources = (serverState = {}) => {
     setVideoSource(els.outputVideo, `/api/video?path=${encodeURIComponent(
       outputPath,
     )}&t=${Date.now()}`);
-    els.outputMeta.textContent = "Ready";
+    els.outputMeta.textContent = `${state.project.width}x${state.project.height}`;
+    els.outputVideo.style.aspectRatio = `${state.project.width} / ${state.project.height}`;
   } else {
     clearVideo(els.outputVideo);
     els.outputMeta.textContent = "-";
+    els.outputVideo.style.aspectRatio = state.project
+      ? `${state.project.width} / ${state.project.height}`
+      : "";
   }
 };
 
@@ -383,6 +458,7 @@ const readRowsIntoProject = () => {
         highlight.duration > 0,
     ),
   };
+  applyOutputFormatToProject();
 };
 
 const renderProject = (serverState = {}) => {
@@ -391,6 +467,11 @@ const renderProject = (serverState = {}) => {
   if (project) {
     els.sourcePath.value = project.src;
     els.titleText.value = project.title || "";
+    els.outputAspectRatio.value = project.outputAspectRatio || "source";
+    els.autoReframe.checked =
+      (project.outputAspectRatio || "source") !== "source" &&
+      project.reframeMode !== "none";
+    syncOutputFormatControls();
     if (project.highlights.length > 0) {
       els.clipDuration.value = project.highlights[0].duration;
     }
@@ -398,6 +479,9 @@ const renderProject = (serverState = {}) => {
     els.sourcePath.value = "";
     els.titleText.value = "";
     els.uploadStatus.textContent = "";
+    els.outputAspectRatio.value = "source";
+    els.autoReframe.checked = false;
+    syncOutputFormatControls();
   }
 
   renderMetrics();
@@ -483,6 +567,15 @@ const applyJobUpdate = async (job, options = {}) => {
   const data = await api("/api/state");
   state.project = data.project;
   state.thumbnails = data.thumbnails || [];
+  if (job.kind === "analyze" && state.project) {
+    els.outputAspectRatio.value = state.pendingOutputAspectRatio || "source";
+    els.autoReframe.checked = Boolean(state.pendingAutoReframe);
+    applyOutputFormatToProject();
+    await api("/api/project", {
+      method: "POST",
+      body: JSON.stringify(state.project),
+    });
+  }
   renderProject(data);
 
   if (job.kind === "analyze" && options.generatePreviewsAfterAnalyze) {
@@ -556,6 +649,8 @@ const followJob = (id, options = {}) => {
 
 els.analyzeBtn.addEventListener("click", async () => {
   try {
+    state.pendingOutputAspectRatio = els.outputAspectRatio.value;
+    state.pendingAutoReframe = els.autoReframe.checked;
     els.processNote.textContent = "Starting analysis...";
     const job = await api("/api/analyze", {
       method: "POST",
@@ -701,6 +796,17 @@ els.renderMode.addEventListener("change", () => {
   syncRenderModeControls();
 });
 
+els.outputAspectRatio.addEventListener("change", () => {
+  syncOutputFormatControls();
+  applyOutputFormatToProject();
+  renderMetrics();
+  updateVideoSources();
+});
+
+els.autoReframe.addEventListener("change", () => {
+  applyOutputFormatToProject();
+});
+
 els.saveProjectBtn.addEventListener("click", async () => {
   try {
     readRowsIntoProject();
@@ -735,11 +841,25 @@ els.reloadBtn.addEventListener("click", () => {
 
 els.addHighlightBtn.addEventListener("click", () => {
   if (!state.project) {
-    state.project = {
-      src: els.sourcePath.value.trim(),
+    const outputAspectRatio = els.outputAspectRatio.value || "source";
+    const dimensions = dimensionsForAspect(outputAspectRatio, {
       width: 1920,
       height: 1080,
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+    });
+    state.project = {
+      src: els.sourcePath.value.trim(),
+      width: dimensions.width,
+      height: dimensions.height,
+      sourceWidth: 1920,
+      sourceHeight: 1080,
       fps: 30,
+      outputAspectRatio,
+      reframeMode:
+        outputAspectRatio === "source" || !els.autoReframe.checked
+          ? "none"
+          : "auto",
       title: els.titleText.value.trim() || undefined,
       highlights: [],
     };

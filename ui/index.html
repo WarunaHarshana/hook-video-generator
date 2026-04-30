@@ -67,6 +67,22 @@
         </div>
 
         <div class="render-block">
+          <div class="option-grid output-options">
+            <div class="field">
+              <label for="outputAspectRatio">Final aspect</label>
+              <select id="outputAspectRatio">
+                <option value="source">Source original</option>
+                <option value="9:16">9:16 vertical</option>
+                <option value="1:1">1:1 square</option>
+                <option value="4:5">4:5 portrait</option>
+                <option value="16:9">16:9 landscape</option>
+              </select>
+            </div>
+            <label class="checkbox-control output-reframe" for="autoReframe">
+              <input id="autoReframe" type="checkbox" checked />
+              <span>Auto reframe when aspect changes</span>
+            </label>
+          </div>
           <div class="field">
             <label for="outputPath">Output path</label>
             <div class="path-picker">

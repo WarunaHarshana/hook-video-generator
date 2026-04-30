@@ -16,11 +16,18 @@ type HighlightSegment = {
   duration: number;
 };
 
+type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
+type ReframeMode = "none" | "auto";
+
 type ProjectJson = {
   src: string;
   width: number;
   height: number;
   fps: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
+  outputAspectRatio?: OutputAspectRatio;
+  reframeMode?: ReframeMode;
   duration?: number;
   title?: string;
   highlights: HighlightSegment[];
@@ -127,6 +134,28 @@ const parseBody = async <T>(req: IncomingMessage): Promise<T> => {
 const normalizeNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const outputAspectRatios = new Set<OutputAspectRatio>([
+  "source",
+  "9:16",
+  "1:1",
+  "4:5",
+  "16:9",
+]);
+
+const reframeModes = new Set<ReframeMode>(["none", "auto"]);
+
+const normalizeOutputAspectRatio = (value: unknown): OutputAspectRatio => {
+  return typeof value === "string" && outputAspectRatios.has(value as OutputAspectRatio)
+    ? (value as OutputAspectRatio)
+    : "source";
+};
+
+const normalizeReframeMode = (value: unknown): ReframeMode => {
+  return typeof value === "string" && reframeModes.has(value as ReframeMode)
+    ? (value as ReframeMode)
+    : "none";
 };
 
 const resolveWorkspacePath = (value: string | undefined, fallback: string) => {
@@ -627,7 +656,23 @@ const loadProject = async () => {
     return null;
   }
 
-  return JSON.parse(await readFile(projectPath, "utf8")) as ProjectJson;
+  const input = JSON.parse(await readFile(projectPath, "utf8")) as ProjectJson;
+  const outputAspectRatio = normalizeOutputAspectRatio(input.outputAspectRatio);
+
+  return {
+    ...input,
+    sourceWidth: Math.max(
+      1,
+      Math.round(normalizeNumber(input.sourceWidth, input.width || 1920)),
+    ),
+    sourceHeight: Math.max(
+      1,
+      Math.round(normalizeNumber(input.sourceHeight, input.height || 1080)),
+    ),
+    outputAspectRatio,
+    reframeMode:
+      outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+  };
 };
 
 const validateProject = (input: ProjectJson): ProjectJson => {
@@ -648,12 +693,25 @@ const validateProject = (input: ProjectJson): ProjectJson => {
     throw new Error("Project needs at least one highlight.");
   }
 
+  const outputAspectRatio = normalizeOutputAspectRatio(input.outputAspectRatio);
+
   return {
     ...input,
     src: input.src.trim(),
     width: Math.max(1, Math.round(normalizeNumber(input.width, 1920))),
     height: Math.max(1, Math.round(normalizeNumber(input.height, 1080))),
     fps: Math.max(1, normalizeNumber(input.fps, 30)),
+    sourceWidth: Math.max(
+      1,
+      Math.round(normalizeNumber(input.sourceWidth, input.width || 1920)),
+    ),
+    sourceHeight: Math.max(
+      1,
+      Math.round(normalizeNumber(input.sourceHeight, input.height || 1080)),
+    ),
+    outputAspectRatio,
+    reframeMode:
+      outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
     duration: normalizeNumber(input.duration, 0) || undefined,
     title: input.title?.trim() || undefined,
     highlights,

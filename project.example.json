@@ -3,6 +3,10 @@
   "width": 1920,
   "height": 1080,
   "fps": 30,
+  "sourceWidth": 1920,
+  "sourceHeight": 1080,
+  "outputAspectRatio": "source",
+  "reframeMode": "none",
   "duration": 120,
   "title": "",
   "highlights": [

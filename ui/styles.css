@@ -168,6 +168,15 @@ select:focus {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.output-options {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: end;
+}
+
+.output-reframe {
+  min-height: 40px;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;

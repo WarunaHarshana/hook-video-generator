@@ -10,6 +10,10 @@ const defaultProps: HookVideoInputProps = {
   width: DEFAULT_WIDTH,
   height: DEFAULT_HEIGHT,
   fps: DEFAULT_FPS,
+  sourceWidth: DEFAULT_WIDTH,
+  sourceHeight: DEFAULT_HEIGHT,
+  outputAspectRatio: "source",
+  reframeMode: "none",
   title: "",
   highlights: [
     {
