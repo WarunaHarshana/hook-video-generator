@@ -105,7 +105,12 @@ const setBusy = (busy) => {
   els.autoReframe.disabled = busy || els.outputAspectRatio.value === "source";
   els.chooseMusicBtn.disabled = busy;
   const hasMusicSource = Boolean(getMusicSource());
-  els.analyzeMusicBtn.disabled = busy || !state.project || !hasMusicSource;
+  els.analyzeMusicBtn.disabled = busy || !hasMusicSource;
+  els.analyzeMusicBtn.title = !hasMusicSource
+    ? "Choose a music file or enter a direct music URL"
+    : !state.project
+      ? "Analyze hooks before analyzing music"
+      : "";
   els.removeMusicBtn.disabled = busy || !state.project?.music;
   els.musicStart.disabled = busy || !hasMusicSource;
   els.musicDuration.disabled = busy || !hasMusicSource;
@@ -197,6 +202,20 @@ const getMusicSource = () => {
 
 const isRemoteMusicSource = (src) => /^(https?:|data:|blob:)/i.test(src);
 
+const isYoutubeMusicSource = (src) => {
+  try {
+    const hostname = new URL(src).hostname.toLowerCase();
+    return (
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname === "youtu.be" ||
+      hostname.endsWith(".youtu.be")
+    );
+  } catch {
+    return false;
+  }
+};
+
 const musicFromControls = () => {
   const src = getMusicSource();
   if (!src) {
@@ -243,6 +262,14 @@ const updateMusicPreview = () => {
     clearVideo(els.musicPreview);
     els.musicPreview.dataset.sourcePath = "";
     els.musicStatus.textContent = "No music selected";
+    return;
+  }
+
+  if (isYoutubeMusicSource(src)) {
+    clearVideo(els.musicPreview);
+    els.musicPreview.dataset.sourcePath = "";
+    els.musicStatus.textContent =
+      "YouTube links are not direct music files. Choose a local music file instead.";
     return;
   }
 
@@ -906,6 +933,17 @@ els.chooseMusicBtn.addEventListener("click", async () => {
 
 els.analyzeMusicBtn.addEventListener("click", async () => {
   try {
+    const musicSource = getMusicSource();
+    if (!musicSource) {
+      throw new Error("Choose a music file or enter a direct music URL first.");
+    }
+
+    if (isYoutubeMusicSource(musicSource)) {
+      throw new Error(
+        "YouTube links cannot be analyzed directly. Download the song first, then choose the local music file.",
+      );
+    }
+
     if (!state.project) {
       throw new Error("Analyze hooks before analyzing music.");
     }
@@ -918,7 +956,7 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
     els.processNote.textContent = "Starting music analysis...";
     const job = await api("/api/analyze-music", {
       method: "POST",
-      body: JSON.stringify({input: getMusicSource()}),
+      body: JSON.stringify({input: musicSource}),
     });
     state.activeJob = job;
     setStatus("Music", "running");
