@@ -41,6 +41,9 @@ const els = {
   sourceVolume: document.querySelector("#sourceVolume"),
   musicEnabled: document.querySelector("#musicEnabled"),
   musicStatus: document.querySelector("#musicStatus"),
+  musicProgressPhase: document.querySelector("#musicProgressPhase"),
+  musicProgressPercent: document.querySelector("#musicProgressPercent"),
+  musicProgressFill: document.querySelector("#musicProgressFill"),
   renderMode: document.querySelector("#renderMode"),
   glMode: document.querySelector("#glMode"),
   concurrency: document.querySelector("#concurrency"),
@@ -135,6 +138,13 @@ const setProgress = (progress = 0, phase = "Ready") => {
   els.progressPercent.textContent = `${percent}%`;
   els.progressFill.style.width = `${percent}%`;
   els.processNote.textContent = phase || "Ready";
+};
+
+const setMusicProgress = (progress = 0, phase = "Music ready") => {
+  const percent = Math.max(0, Math.min(Math.round(progress), 100));
+  els.musicProgressPhase.textContent = phase || "Music ready";
+  els.musicProgressPercent.textContent = `${percent}%`;
+  els.musicProgressFill.style.width = `${percent}%`;
 };
 
 const formatBytes = (bytes) => {
@@ -300,6 +310,7 @@ const renderMusicControls = (music) => {
   els.sourceVolume.value = music ? music.sourceVolume : 0.75;
   els.musicEnabled.checked = music ? music.enabled !== false : false;
   updateMusicPreview();
+  setMusicProgress(music?.detected ? 100 : 0, music?.detected ? "Music analyzed" : "Music ready");
 };
 
 const syncRenderModeControls = () => {
@@ -668,7 +679,11 @@ const startRender = async () => {
 const applyJobUpdate = async (job, options = {}) => {
   state.activeJob = job;
   setStatus(job.kind, job.status);
-  setProgress(job.progress, job.phase);
+  if (job.kind === "music") {
+    setMusicProgress(job.progress, job.phase);
+  } else {
+    setProgress(job.progress, job.phase);
+  }
   setBusy(isActiveJob(job));
 
   if (isActiveJob(job)) {
@@ -685,15 +700,28 @@ const applyJobUpdate = async (job, options = {}) => {
         : "Failed",
     job.status,
   );
-  setProgress(job.progress, job.phase);
+  if (job.kind === "music") {
+    setMusicProgress(job.progress, job.phase);
+  } else {
+    setProgress(job.progress, job.phase);
+  }
 
   if (job.status === "failed") {
     const lines = (job.logs || "").split(/\r?\n/).filter(Boolean);
-    els.processNote.textContent = lines.at(-1) || "Process failed";
+    const message = lines.at(-1) || "Process failed";
+    if (job.kind === "music") {
+      els.musicStatus.textContent = message;
+    } else {
+      els.processNote.textContent = message;
+    }
   }
 
   if (job.status === "cancelled") {
-    els.processNote.textContent = `${job.kind} cancelled`;
+    if (job.kind === "music") {
+      els.musicStatus.textContent = "Music analysis cancelled";
+    } else {
+      els.processNote.textContent = `${job.kind} cancelled`;
+    }
   }
 
   if (job.status !== "done") {
@@ -713,6 +741,12 @@ const applyJobUpdate = async (job, options = {}) => {
     });
   }
   renderProject(data);
+
+  if (job.kind === "music") {
+    setMusicProgress(100, "Music analysis complete");
+    els.musicStatus.textContent = "Music section selected";
+    return;
+  }
 
   if (job.kind === "analyze" && options.generatePreviewsAfterAnalyze) {
     els.processNote.textContent = "Analysis complete. Generating previews...";
@@ -815,7 +849,11 @@ els.cancelJobBtn.addEventListener("click", async () => {
   try {
     els.cancelJobBtn.disabled = true;
     setStatus("Cancelling", "cancelling");
-    setProgress(state.activeJob.progress, `Cancelling ${state.activeJob.kind}`);
+    if (state.activeJob.kind === "music") {
+      setMusicProgress(state.activeJob.progress, "Cancelling music analysis");
+    } else {
+      setProgress(state.activeJob.progress, `Cancelling ${state.activeJob.kind}`);
+    }
     const result = await api("/api/cancel-job", {
       method: "POST",
       body: JSON.stringify({}),
@@ -921,6 +959,7 @@ els.chooseMusicBtn.addEventListener("click", async () => {
     els.musicEnabled.checked = true;
     applyMusicToProject();
     updateMusicPreview();
+    setMusicProgress(0, "Music ready");
     setStatus("Ready", "done");
     els.processNote.textContent = "Music selected. Analyze it to find the strongest part.";
   } catch (error) {
@@ -953,18 +992,19 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify(state.project),
     });
-    els.processNote.textContent = "Starting music analysis...";
+    els.musicStatus.textContent = "Starting music analysis...";
+    setMusicProgress(0, "Starting music analysis");
     const job = await api("/api/analyze-music", {
       method: "POST",
       body: JSON.stringify({input: musicSource}),
     });
     state.activeJob = job;
     setStatus("Music", "running");
-    setProgress(job.progress, job.phase);
+    setMusicProgress(job.progress, job.phase);
     followJob(job.id);
   } catch (error) {
     setStatus("Failed", "failed");
-    els.processNote.textContent = error.message;
+    els.musicStatus.textContent = error.message;
   }
 });
 
@@ -980,6 +1020,7 @@ els.removeMusicBtn.addEventListener("click", async () => {
   }
 
   renderMusicControls(undefined);
+  setMusicProgress(0, "Music ready");
   setBusy(isActiveJob());
 });
 

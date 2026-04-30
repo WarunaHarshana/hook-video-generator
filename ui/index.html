@@ -66,7 +66,72 @@
           <div><span>Duration</span><strong>-</strong></div>
         </div>
 
+        <div class="music-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Audio</p>
+              <h2>Music</h2>
+            </div>
+          </div>
+          <div class="field">
+            <label for="musicPath">Music file</label>
+            <div class="path-picker">
+              <input id="musicPath" type="text" spellcheck="false" />
+              <button id="chooseMusicBtn" type="button">Choose</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="musicUrl">Music URL</label>
+            <input id="musicUrl" type="url" spellcheck="false" />
+          </div>
+          <div class="button-row">
+            <button id="analyzeMusicBtn" type="button">Analyze Music</button>
+            <button id="removeMusicBtn" type="button" class="danger-button">
+              Remove Music
+            </button>
+          </div>
+          <div class="music-progress">
+            <div class="progress-head">
+              <span id="musicProgressPhase">Music ready</span>
+              <strong id="musicProgressPercent">0%</strong>
+            </div>
+            <div class="progress-track music-track">
+              <div id="musicProgressFill"></div>
+            </div>
+          </div>
+          <audio id="musicPreview" controls preload="metadata"></audio>
+          <div class="option-grid music-options">
+            <div class="field">
+              <label for="musicStart">Music start</label>
+              <input id="musicStart" type="number" min="0" step="0.01" value="0" />
+            </div>
+            <div class="field">
+              <label for="musicDuration">Music seconds</label>
+              <input id="musicDuration" type="number" min="0.1" step="0.1" value="15" />
+            </div>
+            <div class="field">
+              <label for="musicVolume">Music volume</label>
+              <input id="musicVolume" type="number" min="0" max="1" step="0.05" value="0.35" />
+            </div>
+            <div class="field">
+              <label for="sourceVolume">Source volume</label>
+              <input id="sourceVolume" type="number" min="0" max="1" step="0.05" value="0.75" />
+            </div>
+          </div>
+          <label class="checkbox-control" for="musicEnabled">
+            <input id="musicEnabled" type="checkbox" checked />
+            <span>Use music in final render</span>
+          </label>
+          <div class="music-status" id="musicStatus">No music selected</div>
+        </div>
+
         <div class="render-block">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Export</p>
+              <h2>Render</h2>
+            </div>
+          </div>
           <div class="option-grid output-options">
             <div class="field">
               <label for="outputAspectRatio">Final aspect</label>
@@ -82,49 +147,6 @@
               <input id="autoReframe" type="checkbox" checked />
               <span>Auto reframe when aspect changes</span>
             </label>
-          </div>
-          <div class="music-card">
-            <div class="field">
-              <label for="musicPath">Music file</label>
-              <div class="path-picker">
-                <input id="musicPath" type="text" spellcheck="false" />
-                <button id="chooseMusicBtn" type="button">Choose</button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="musicUrl">Music URL</label>
-              <input id="musicUrl" type="url" spellcheck="false" />
-            </div>
-            <div class="button-row">
-              <button id="analyzeMusicBtn" type="button">Analyze Music</button>
-              <button id="removeMusicBtn" type="button" class="danger-button">
-                Remove Music
-              </button>
-            </div>
-            <audio id="musicPreview" controls preload="metadata"></audio>
-            <div class="option-grid music-options">
-              <div class="field">
-                <label for="musicStart">Music start</label>
-                <input id="musicStart" type="number" min="0" step="0.01" value="0" />
-              </div>
-              <div class="field">
-                <label for="musicDuration">Music seconds</label>
-                <input id="musicDuration" type="number" min="0.1" step="0.1" value="15" />
-              </div>
-              <div class="field">
-                <label for="musicVolume">Music volume</label>
-                <input id="musicVolume" type="number" min="0" max="1" step="0.05" value="0.35" />
-              </div>
-              <div class="field">
-                <label for="sourceVolume">Source volume</label>
-                <input id="sourceVolume" type="number" min="0" max="1" step="0.05" value="0.75" />
-              </div>
-            </div>
-            <label class="checkbox-control" for="musicEnabled">
-              <input id="musicEnabled" type="checkbox" checked />
-              <span>Use music in final render</span>
-            </label>
-            <div class="music-status" id="musicStatus">No music selected</div>
           </div>
           <div class="field">
             <label for="outputPath">Output path</label>

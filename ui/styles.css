@@ -113,9 +113,22 @@ audio {
 .control-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   padding: 18px;
   align-self: start;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.1;
 }
 
 .field {
@@ -190,10 +203,10 @@ select:focus {
 .music-card {
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
+  padding: 16px;
   background: #f9fbfc;
 }
 
@@ -208,6 +221,24 @@ select:focus {
   font-weight: 700;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.music-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.music-track {
+  background: #e4e8dc;
+}
+
+#musicProgressFill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8a7a20, var(--accent));
+  transition: width 180ms ease;
 }
 
 .button-row {
@@ -342,9 +373,9 @@ button.danger-button:hover {
 .render-block {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   border-top: 1px solid var(--line);
-  padding-top: 16px;
+  padding-top: 18px;
 }
 
 .cleanup-row {
