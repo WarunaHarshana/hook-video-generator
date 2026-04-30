@@ -215,6 +215,28 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
   };
 };
 
+const isYoutubeUrl = (value: string) => {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname === "youtu.be" ||
+      hostname.endsWith(".youtu.be")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const assertSupportedMusicSource = (value: string) => {
+  if (isYoutubeUrl(value)) {
+    throw new Error(
+      "YouTube links are not downloaded by this app. Use a local music file or a direct audio/video file URL.",
+    );
+  }
+};
+
 const resolveWorkspacePath = (value: string | undefined, fallback: string) => {
   if (!value?.trim()) {
     return fallback;
@@ -1163,6 +1185,9 @@ const routeApi = async (
 
   if (req.method === "POST" && url.pathname === "/api/project") {
     const body = await parseBody<ProjectJson>(req);
+    if (body.music?.src) {
+      assertSupportedMusicSource(body.music.src);
+    }
     const project = validateProject(body);
     await writeFile(projectPath, `${JSON.stringify(project, null, 2)}\n`);
     await registerCreatedFile(projectPath, "project");
@@ -1313,6 +1338,8 @@ const routeApi = async (
       sendJson(res, 400, {error: "Music file path is required."});
       return;
     }
+
+    assertSupportedMusicSource(input);
 
     if (!project) {
       sendJson(res, 400, {error: "Analyze hooks before analyzing music."});

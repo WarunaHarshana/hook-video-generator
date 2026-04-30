@@ -12,7 +12,7 @@ The app finds strong highlight moments, shows preview thumbnails, lets you adjus
 - Preview any hook before rendering.
 - Edit start time and duration for each hook.
 - Remove weak hooks before export.
-- Add a background music file and auto-detect a strong music section.
+- Add a background music file or direct media URL and auto-detect a strong music section.
 - Control music volume and original source volume.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
 - Auto reframe when exporting to a different aspect ratio.
@@ -70,6 +70,7 @@ The rendered video is saved to the selected output path. The default output is `
 ## Music Options
 
 - `Choose`: select a local audio or video file to use as background music.
+- `Music URL`: use a direct audio or video file URL.
 - `Analyze Music`: finds a high-energy section that fits the hook video length.
 - `Music start`: where the music section begins.
 - `Music seconds`: how long the selected music section should play.

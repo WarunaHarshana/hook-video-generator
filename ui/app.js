@@ -30,6 +30,7 @@ const els = {
   outputAspectRatio: document.querySelector("#outputAspectRatio"),
   autoReframe: document.querySelector("#autoReframe"),
   musicPath: document.querySelector("#musicPath"),
+  musicUrl: document.querySelector("#musicUrl"),
   chooseMusicBtn: document.querySelector("#chooseMusicBtn"),
   analyzeMusicBtn: document.querySelector("#analyzeMusicBtn"),
   removeMusicBtn: document.querySelector("#removeMusicBtn"),
@@ -103,13 +104,14 @@ const setBusy = (busy) => {
   els.outputAspectRatio.disabled = busy;
   els.autoReframe.disabled = busy || els.outputAspectRatio.value === "source";
   els.chooseMusicBtn.disabled = busy;
-  els.analyzeMusicBtn.disabled = busy || !state.project || !els.musicPath.value.trim();
+  const hasMusicSource = Boolean(getMusicSource());
+  els.analyzeMusicBtn.disabled = busy || !state.project || !hasMusicSource;
   els.removeMusicBtn.disabled = busy || !state.project?.music;
-  els.musicStart.disabled = busy || !els.musicPath.value.trim();
-  els.musicDuration.disabled = busy || !els.musicPath.value.trim();
-  els.musicVolume.disabled = busy || !els.musicPath.value.trim();
-  els.sourceVolume.disabled = busy || !els.musicPath.value.trim();
-  els.musicEnabled.disabled = busy || !els.musicPath.value.trim();
+  els.musicStart.disabled = busy || !hasMusicSource;
+  els.musicDuration.disabled = busy || !hasMusicSource;
+  els.musicVolume.disabled = busy || !hasMusicSource;
+  els.sourceVolume.disabled = busy || !hasMusicSource;
+  els.musicEnabled.disabled = busy || !hasMusicSource;
   els.renderMode.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
@@ -189,8 +191,14 @@ const applyOutputFormatToProject = () => {
   };
 };
 
+const getMusicSource = () => {
+  return els.musicUrl.value.trim() || els.musicPath.value.trim();
+};
+
+const isRemoteMusicSource = (src) => /^(https?:|data:|blob:)/i.test(src);
+
 const musicFromControls = () => {
-  const src = els.musicPath.value.trim();
+  const src = getMusicSource();
   if (!src) {
     return undefined;
   }
@@ -230,7 +238,7 @@ const musicSummary = (music) => {
 };
 
 const updateMusicPreview = () => {
-  const src = els.musicPath.value.trim();
+  const src = getMusicSource();
   if (!src) {
     clearVideo(els.musicPreview);
     els.musicPreview.dataset.sourcePath = "";
@@ -242,14 +250,23 @@ const updateMusicPreview = () => {
     els.musicPreview.dataset.sourcePath = src;
     setVideoSource(
       els.musicPreview,
-      `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
+      isRemoteMusicSource(src)
+        ? src
+        : `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
     );
   }
   els.musicStatus.textContent = musicSummary(musicFromControls());
 };
 
 const renderMusicControls = (music) => {
-  els.musicPath.value = music?.src || "";
+  const src = music?.src || "";
+  if (isRemoteMusicSource(src)) {
+    els.musicUrl.value = src;
+    els.musicPath.value = "";
+  } else {
+    els.musicPath.value = src;
+    els.musicUrl.value = "";
+  }
   els.musicStart.value = music ? music.start : 0;
   els.musicDuration.value = music ? music.duration : Math.max(3, totalHighlightSeconds() || 15);
   els.musicVolume.value = music ? music.volume : 0.35;
@@ -872,6 +889,7 @@ els.chooseMusicBtn.addEventListener("click", async () => {
     }
 
     els.musicPath.value = result.src;
+    els.musicUrl.value = "";
     els.musicDuration.value = Math.max(3, totalHighlightSeconds() || 15);
     els.musicEnabled.checked = true;
     applyMusicToProject();
@@ -900,7 +918,7 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
     els.processNote.textContent = "Starting music analysis...";
     const job = await api("/api/analyze-music", {
       method: "POST",
-      body: JSON.stringify({input: els.musicPath.value}),
+      body: JSON.stringify({input: getMusicSource()}),
     });
     state.activeJob = job;
     setStatus("Music", "running");
@@ -973,6 +991,7 @@ els.autoReframe.addEventListener("change", () => {
 
 [
   els.musicPath,
+  els.musicUrl,
   els.musicStart,
   els.musicDuration,
   els.musicVolume,
