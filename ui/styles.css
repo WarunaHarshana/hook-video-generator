@@ -97,9 +97,9 @@ audio {
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
-  gap: 20px;
-  padding: 20px;
+  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+  gap: 22px;
+  padding: 22px;
 }
 
 .panel,
@@ -113,9 +113,25 @@ audio {
 .control-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 18px;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   align-self: start;
+}
+
+.control-card,
+.music-card,
+.render-block {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
 .section-head {
@@ -147,6 +163,7 @@ label {
 input,
 select {
   width: 100%;
+  min-width: 0;
   min-height: 40px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -164,7 +181,7 @@ select:focus {
 
 .path-picker {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(82px, auto);
   gap: 8px;
 }
 
@@ -182,31 +199,27 @@ select:focus {
   gap: 10px;
 }
 
+.hook-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .render-options {
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .render-options label {
   line-height: 1.15;
-  white-space: nowrap;
 }
 
 .output-options {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .output-reframe {
-  min-height: 40px;
+  min-height: 46px;
 }
 
 .music-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 16px;
   background: #f9fbfc;
 }
 
@@ -389,14 +402,6 @@ button.danger-button:hover {
   word-break: break-word;
 }
 
-.render-block {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
-}
-
 .cleanup-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -414,6 +419,15 @@ button.danger-button:hover {
   text-transform: none;
 }
 
+.toggle-control {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafb;
+  line-height: 1.2;
+}
+
 .checkbox-control input {
   width: 16px;
   min-height: 16px;
@@ -425,6 +439,10 @@ button.danger-button:hover {
 
 .checkbox-control span {
   min-width: 0;
+}
+
+.render-block .cleanup-row .checkbox-control {
+  align-self: stretch;
 }
 
 .workspace {

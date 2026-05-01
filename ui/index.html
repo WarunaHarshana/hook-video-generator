@@ -16,54 +16,62 @@
 
     <main class="shell">
       <section class="panel control-panel" aria-label="Controls">
-        <div class="field source-field">
-          <label for="sourcePath">Source video path</label>
-          <div class="path-picker">
-            <input id="sourcePath" type="text" spellcheck="false" />
-            <button id="chooseFileBtn" type="button">Choose</button>
+        <div class="control-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Source</p>
+              <h2>Input</h2>
+            </div>
           </div>
-          <div class="upload-status" id="uploadStatus"></div>
-        </div>
+          <div class="field source-field">
+            <label for="sourcePath">Source video path</label>
+            <div class="path-picker">
+              <input id="sourcePath" type="text" spellcheck="false" />
+              <button id="chooseFileBtn" type="button">Choose</button>
+            </div>
+            <div class="upload-status" id="uploadStatus"></div>
+          </div>
 
-        <div class="option-grid">
-          <div class="field">
-            <label for="clipDuration">Clip seconds</label>
-            <input id="clipDuration" type="number" min="0.1" step="0.1" value="3" />
+          <div class="option-grid hook-options">
+            <div class="field">
+              <label for="clipDuration">Clip seconds</label>
+              <input id="clipDuration" type="number" min="0.1" step="0.1" value="3" />
+            </div>
+            <div class="field">
+              <label for="maxClips">Max clips</label>
+              <input id="maxClips" type="number" min="1" step="1" value="8" />
+            </div>
+            <div class="field">
+              <label for="sceneThreshold">Scene threshold</label>
+              <input id="sceneThreshold" type="number" min="0.01" max="1" step="0.01" value="0.32" />
+            </div>
           </div>
-          <div class="field">
-            <label for="maxClips">Max clips</label>
-            <input id="maxClips" type="number" min="1" step="1" value="8" />
-          </div>
-          <div class="field">
-            <label for="sceneThreshold">Scene threshold</label>
-            <input id="sceneThreshold" type="number" min="0.01" max="1" step="0.01" value="0.32" />
-          </div>
-        </div>
 
-        <div class="button-row">
-          <button id="analyzeBtn" class="primary">Analyze Hooks</button>
-          <button id="cancelJobBtn" type="button" class="danger-button" hidden>
-            Cancel
-          </button>
-          <button id="reloadBtn">Reload</button>
-        </div>
-
-        <div class="process-progress" id="processProgress">
-          <div class="progress-head">
-            <span id="progressPhase">Ready</span>
-            <strong id="progressPercent">0%</strong>
+          <div class="button-row">
+            <button id="analyzeBtn" class="primary">Analyze Hooks</button>
+            <button id="cancelJobBtn" type="button" class="danger-button" hidden>
+              Cancel
+            </button>
+            <button id="reloadBtn">Reload</button>
           </div>
-          <div class="progress-track">
-            <div id="progressFill"></div>
-          </div>
-          <div class="process-note" id="processNote">Ready</div>
-        </div>
 
-        <div class="metric-grid" id="metrics">
-          <div><span>Resolution</span><strong>-</strong></div>
-          <div><span>FPS</span><strong>-</strong></div>
-          <div><span>Highlights</span><strong>-</strong></div>
-          <div><span>Duration</span><strong>-</strong></div>
+          <div class="process-progress" id="processProgress">
+            <div class="progress-head">
+              <span id="progressPhase">Ready</span>
+              <strong id="progressPercent">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="progressFill"></div>
+            </div>
+            <div class="process-note" id="processNote">Ready</div>
+          </div>
+
+          <div class="metric-grid" id="metrics">
+            <div><span>Resolution</span><strong>-</strong></div>
+            <div><span>FPS</span><strong>-</strong></div>
+            <div><span>Highlights</span><strong>-</strong></div>
+            <div><span>Duration</span><strong>-</strong></div>
+          </div>
         </div>
 
         <div class="music-card">
@@ -180,11 +188,11 @@
                 <option value="impact-shake">Impact shake</option>
               </select>
             </div>
-            <label class="checkbox-control output-reframe" for="autoReframe">
-              <input id="autoReframe" type="checkbox" checked />
-              <span>Auto reframe when aspect changes</span>
-            </label>
           </div>
+          <label class="checkbox-control toggle-control output-reframe" for="autoReframe">
+            <input id="autoReframe" type="checkbox" checked />
+            <span>Auto reframe when aspect changes</span>
+          </label>
           <div class="field">
             <label for="outputPath">Output path</label>
             <div class="path-picker">
