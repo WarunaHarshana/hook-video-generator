@@ -27,7 +27,7 @@ A full PDF guide with screenshots is included:
 - Auto-select beat style based on the music rhythm.
 - Cut highlights to music beats.
 - Control background music volume and original source audio volume.
-- Choose visual effects: clean cuts, auto reactive, beat punch, flash cuts, or impact shake.
+- Choose visual effects: clean cuts, auto reactive, smooth slow, fast kinetic, slow-fast mix, beat punch, flash cuts, or impact shake.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
 - Auto reframe when exporting to a different aspect ratio.
 - Choose CPU, GPU, or automatic render mode.
@@ -80,7 +80,7 @@ If port `3210` is already in use, the app will show the next available URL in th
 - `Loose` creates slower, longer rhythm cuts.
 - `Tight` is the balanced default for most hooks.
 - `Fast` creates quicker cuts for dense, energetic beats.
-- `Auto reactive` effects use detected beat strength to make stronger beats feel more impactful.
+- `Auto reactive` effects use detected beat strength and local music pace to keep slow sections smooth and faster sections more energetic.
 
 ## Export Options
 

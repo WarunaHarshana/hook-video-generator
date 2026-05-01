@@ -23,6 +23,9 @@ type BeatSyncIntensity = "loose" | "tight" | "fast";
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-slow"
+  | "fast-kinetic"
+  | "slow-fast-mix"
   | "beat-punch"
   | "flash-cuts"
   | "impact-shake";
@@ -203,6 +206,9 @@ const reframeModes = new Set<ReframeMode>(["none", "auto"]);
 const effectPresets = new Set<EffectPreset>([
   "clean",
   "auto",
+  "smooth-slow",
+  "fast-kinetic",
+  "slow-fast-mix",
   "beat-punch",
   "flash-cuts",
   "impact-shake",

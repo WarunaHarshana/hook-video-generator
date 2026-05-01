@@ -22,6 +22,9 @@ export type BeatSyncIntensity = "loose" | "tight" | "fast";
 export type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-slow"
+  | "fast-kinetic"
+  | "slow-fast-mix"
   | "beat-punch"
   | "flash-cuts"
   | "impact-shake";
@@ -70,7 +73,11 @@ type ClipWithTiming = HighlightSegment & {
   from: number;
   durationInFrames: number;
   effectStrength: number;
+  effectPace: EffectPace;
 };
+
+type EffectPace = "slow" | "medium" | "fast";
+type ResolvedEffectPreset = Exclude<EffectPreset, "auto" | "slow-fast-mix">;
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
@@ -84,6 +91,19 @@ const totalHighlightSeconds = (highlights: HighlightSegment[]) => {
   return highlights.reduce((sum, highlight) => {
     return sum + Math.max(0, Number(highlight.duration) || 0);
   }, 0);
+};
+
+const median = (values: number[]) => {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const midpoint = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 0
+    ? (sorted[midpoint - 1] + sorted[midpoint]) / 2
+    : sorted[midpoint];
 };
 
 const resolveMediaSrc = (src: string) => {
@@ -127,6 +147,49 @@ const beatStrengthAt = (music: MusicSettings | undefined, timelineSeconds: numbe
   }
 
   return clamp(closest.strength, 0.18, 1);
+};
+
+const effectPaceAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+): EffectPace => {
+  if (!music?.enabled || !music.src || !Array.isArray(music.beats) || music.beats.length < 2) {
+    return "medium";
+  }
+
+  const musicTime = Math.max(0, Number(music.start) || 0) + timelineSeconds;
+  const beats = music.beats
+    .map((beat) => Number(beat))
+    .filter((beat) => Number.isFinite(beat) && beat >= 0)
+    .sort((a, b) => a - b);
+  const localGaps: number[] = [];
+
+  for (let index = 1; index < beats.length; index += 1) {
+    const previous = beats[index - 1];
+    const current = beats[index];
+    const gap = current - previous;
+    const midpoint = previous + gap / 2;
+
+    if (gap > 0.12 && gap < 3 && Math.abs(midpoint - musicTime) <= 3.2) {
+      localGaps.push(gap);
+    }
+  }
+
+  const gap = median(localGaps);
+
+  if (!gap) {
+    return "medium";
+  }
+
+  if (gap <= 0.58) {
+    return "fast";
+  }
+
+  if (gap >= 1.05) {
+    return "slow";
+  }
+
+  return "medium";
 };
 
 export const buildBeatSyncedHighlights = (
@@ -255,6 +318,7 @@ const buildTimeline = (
         from: cursor,
         durationInFrames,
         effectStrength: beatStrengthAt(music, cursor / fps),
+        effectPace: effectPaceAt(music, cursor / fps),
       };
 
       cursor += durationInFrames;
@@ -315,33 +379,51 @@ const fadeInOut = (frame: number, durationInFrames: number, maxFade = 8) => {
 const resolveEffectPreset = (
   preset: EffectPreset,
   effectStrength: number,
-): Exclude<EffectPreset, "auto"> => {
+  effectPace: EffectPace,
+): ResolvedEffectPreset => {
+  if (preset === "slow-fast-mix") {
+    if (effectPace === "slow") {
+      return "smooth-slow";
+    }
+
+    if (effectPace === "fast") {
+      return "fast-kinetic";
+    }
+
+    return "beat-punch";
+  }
+
   if (preset !== "auto") {
     return preset;
   }
 
-  if (effectStrength >= 0.82) {
-    return "impact-shake";
+  if (effectPace === "slow") {
+    return "smooth-slow";
   }
 
-  if (effectStrength >= 0.58) {
+  if (effectPace === "fast") {
+    return effectStrength >= 0.54 ? "fast-kinetic" : "beat-punch";
+  }
+
+  if (effectStrength >= 0.72) {
     return "beat-punch";
   }
 
-  return "flash-cuts";
+  return "smooth-slow";
 };
 
 const cutPulse = (
   frame: number,
   durationInFrames: number,
-  preset: Exclude<EffectPreset, "auto">,
+  preset: ResolvedEffectPreset,
   effectStrength: number,
 ) => {
   if (preset === "clean") {
     return 0;
   }
 
-  const maxFrames = preset === "impact-shake" ? 9 : 7;
+  const maxFrames =
+    preset === "smooth-slow" ? 15 : preset === "impact-shake" ? 8 : 6;
   const pulseFrames = Math.max(
     1,
     Math.min(maxFrames, Math.max(1, Math.floor(durationInFrames / 3))),
@@ -353,24 +435,39 @@ const cutPulse = (
     easing: Easing.out(Easing.cubic),
   });
 
-  return pulse * clamp(effectStrength, 0.18, 1);
+  const presetStrength =
+    preset === "smooth-slow"
+      ? 0.34
+      : preset === "fast-kinetic"
+        ? 0.82
+        : 1;
+
+  return pulse * clamp(effectStrength, 0.18, 1) * presetStrength;
 };
 
 const flashOpacity = (
   pulse: number,
-  preset: Exclude<EffectPreset, "auto">,
+  preset: ResolvedEffectPreset,
   effectStrength: number,
 ) => {
+  if (preset === "smooth-slow") {
+    return pulse * 0.025;
+  }
+
+  if (preset === "fast-kinetic") {
+    return pulse * (0.035 + effectStrength * 0.04);
+  }
+
   if (preset === "flash-cuts") {
-    return pulse * (0.12 + effectStrength * 0.16);
+    return pulse * (0.055 + effectStrength * 0.08);
   }
 
   if (preset === "beat-punch") {
-    return pulse * (0.06 + effectStrength * 0.1);
+    return pulse * (0.035 + effectStrength * 0.05);
   }
 
   if (preset === "impact-shake") {
-    return pulse * (0.05 + effectStrength * 0.1);
+    return pulse * (0.04 + effectStrength * 0.055);
   }
 
   return 0;
@@ -388,7 +485,11 @@ const SourceClip: React.FC<{
   const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveMediaSrc(src);
   const visualOpacity = clipFade(frame, clip.durationInFrames);
-  const resolvedPreset = resolveEffectPreset(effectPreset, clip.effectStrength);
+  const resolvedPreset = resolveEffectPreset(
+    effectPreset,
+    clip.effectStrength,
+    clip.effectPace,
+  );
   const pulse = cutPulse(
     frame,
     clip.durationInFrames,
@@ -399,7 +500,14 @@ const SourceClip: React.FC<{
   const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
   const autoReframe = reframeMode === "auto";
   const portraitFrame = width < height;
-  const panOffset = index % 3 === 0 ? -8 : index % 3 === 1 ? 0 : 8;
+  const panDistance =
+    resolvedPreset === "smooth-slow"
+      ? 4
+      : resolvedPreset === "fast-kinetic"
+        ? 9
+        : 7;
+  const panOffset =
+    index % 3 === 0 ? -panDistance : index % 3 === 1 ? 0 : panDistance;
   const pan = autoReframe
     ? interpolate(
         frame,
@@ -412,21 +520,49 @@ const SourceClip: React.FC<{
         },
       )
     : 50;
-  const scale = interpolate(frame, [0, clip.durationInFrames], [1.015, 1.045], {
+  const endScale =
+    resolvedPreset === "smooth-slow"
+      ? 1.022
+      : resolvedPreset === "fast-kinetic"
+        ? 1.038
+        : 1.045;
+  const scale = interpolate(frame, [0, clip.durationInFrames], [1.006, endScale], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic),
+    easing:
+      resolvedPreset === "smooth-slow"
+        ? Easing.inOut(Easing.cubic)
+        : Easing.out(Easing.cubic),
   });
   const effectScale =
-    autoReframe && (resolvedPreset === "beat-punch" || resolvedPreset === "impact-shake")
-      ? pulse * (resolvedPreset === "impact-shake" ? 0.026 : 0.035)
+    autoReframe &&
+    (resolvedPreset === "smooth-slow" ||
+      resolvedPreset === "fast-kinetic" ||
+      resolvedPreset === "beat-punch" ||
+      resolvedPreset === "impact-shake" ||
+      resolvedPreset === "flash-cuts")
+      ? pulse *
+        (resolvedPreset === "smooth-slow"
+          ? 0.006
+          : resolvedPreset === "fast-kinetic"
+            ? 0.022
+            : resolvedPreset === "impact-shake"
+              ? 0.018
+              : 0.02)
       : 0;
+  const shakePreset =
+    resolvedPreset === "impact-shake"
+      ? 1
+      : resolvedPreset === "fast-kinetic"
+        ? 0.44
+        : 0;
   const shakeAmount =
-    autoReframe && resolvedPreset === "impact-shake"
-      ? Math.sin(frame * 2.4 + index) *
+    autoReframe && shakePreset > 0
+      ? Math.sin(frame * 2.1 + index) *
         pulse *
-        Math.max(3, width * 0.006) *
-        (0.65 + clip.effectStrength * 0.7)
+        Math.max(2, width * 0.0038) *
+        (0.5 + clip.effectStrength * 0.55) *
+        shakePreset
       : 0;
   const transform = autoReframe
     ? `translate3d(${shakeAmount}px, 0, 0) scale(${scale + effectScale})`
