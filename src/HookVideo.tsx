@@ -19,7 +19,17 @@ export type HighlightSegment = {
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
 export type BeatSyncIntensity = "loose" | "tight" | "fast";
-export type EffectPreset = "clean" | "beat-punch" | "flash-cuts" | "impact-shake";
+export type EffectPreset =
+  | "clean"
+  | "auto"
+  | "beat-punch"
+  | "flash-cuts"
+  | "impact-shake";
+
+export type BeatEvent = {
+  time: number;
+  strength: number;
+};
 
 export type BeatSyncSettings = {
   enabled: boolean;
@@ -37,6 +47,7 @@ export type MusicSettings = {
   enabled: boolean;
   useEntireFile?: boolean;
   beats?: number[];
+  beatEvents?: BeatEvent[];
   beatSync?: BeatSyncSettings;
 };
 
@@ -58,6 +69,7 @@ export type HookVideoInputProps = {
 type ClipWithTiming = HighlightSegment & {
   from: number;
   durationInFrames: number;
+  effectStrength: number;
 };
 
 const clamp = (value: number, min: number, max: number) => {
@@ -92,6 +104,29 @@ const beatSyncConfig = (intensity: BeatSyncIntensity) => {
   }
 
   return {min: 0.45, max: 1.35, ideal: 0.85, beatsPerCut: 1};
+};
+
+const beatStrengthAt = (music: MusicSettings | undefined, timelineSeconds: number) => {
+  if (!music?.enabled || !music.src || !music.beatEvents?.length) {
+    return 1;
+  }
+
+  const musicTime = Math.max(0, Number(music.start) || 0) + timelineSeconds;
+  const closest = music.beatEvents.reduce(
+    (best, beat) => {
+      const distance = Math.abs(Number(beat.time) - musicTime);
+      return distance < best.distance
+        ? {distance, strength: Number(beat.strength)}
+        : best;
+    },
+    {distance: Infinity, strength: 0.55},
+  );
+
+  if (closest.distance > 0.18 || !Number.isFinite(closest.strength)) {
+    return 0.55;
+  }
+
+  return clamp(closest.strength, 0.18, 1);
 };
 
 export const buildBeatSyncedHighlights = (
@@ -198,6 +233,7 @@ const buildTimeline = (
         ...highlight,
         from: cursor,
         durationInFrames,
+        effectStrength: beatStrengthAt(music, cursor / fps),
       };
 
       cursor += durationInFrames;
@@ -255,7 +291,31 @@ const fadeInOut = (frame: number, durationInFrames: number, maxFade = 8) => {
   return Math.min(fadeIn, fadeOut);
 };
 
-const cutPulse = (frame: number, durationInFrames: number, preset: EffectPreset) => {
+const resolveEffectPreset = (
+  preset: EffectPreset,
+  effectStrength: number,
+): Exclude<EffectPreset, "auto"> => {
+  if (preset !== "auto") {
+    return preset;
+  }
+
+  if (effectStrength >= 0.82) {
+    return "impact-shake";
+  }
+
+  if (effectStrength >= 0.58) {
+    return "beat-punch";
+  }
+
+  return "flash-cuts";
+};
+
+const cutPulse = (
+  frame: number,
+  durationInFrames: number,
+  preset: Exclude<EffectPreset, "auto">,
+  effectStrength: number,
+) => {
   if (preset === "clean") {
     return 0;
   }
@@ -266,24 +326,30 @@ const cutPulse = (frame: number, durationInFrames: number, preset: EffectPreset)
     Math.min(maxFrames, Math.max(1, Math.floor(durationInFrames / 3))),
   );
 
-  return interpolate(frame, [0, pulseFrames], [1, 0], {
+  const pulse = interpolate(frame, [0, pulseFrames], [1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic),
   });
+
+  return pulse * clamp(effectStrength, 0.18, 1);
 };
 
-const flashOpacity = (pulse: number, preset: EffectPreset) => {
+const flashOpacity = (
+  pulse: number,
+  preset: Exclude<EffectPreset, "auto">,
+  effectStrength: number,
+) => {
   if (preset === "flash-cuts") {
-    return pulse * 0.26;
+    return pulse * (0.12 + effectStrength * 0.16);
   }
 
   if (preset === "beat-punch") {
-    return pulse * 0.14;
+    return pulse * (0.06 + effectStrength * 0.1);
   }
 
   if (preset === "impact-shake") {
-    return pulse * 0.1;
+    return pulse * (0.05 + effectStrength * 0.1);
   }
 
   return 0;
@@ -301,7 +367,13 @@ const SourceClip: React.FC<{
   const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveMediaSrc(src);
   const visualOpacity = clipFade(frame, clip.durationInFrames);
-  const pulse = cutPulse(frame, clip.durationInFrames, effectPreset);
+  const resolvedPreset = resolveEffectPreset(effectPreset, clip.effectStrength);
+  const pulse = cutPulse(
+    frame,
+    clip.durationInFrames,
+    resolvedPreset,
+    clip.effectStrength,
+  );
   const trimBefore = secondsToFrames(clip.start, fps);
   const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
   const autoReframe = reframeMode === "auto";
@@ -325,15 +397,20 @@ const SourceClip: React.FC<{
     easing: Easing.out(Easing.cubic),
   });
   const effectScale =
-    autoReframe && effectPreset === "beat-punch" ? pulse * 0.035 : 0;
+    autoReframe && (resolvedPreset === "beat-punch" || resolvedPreset === "impact-shake")
+      ? pulse * (resolvedPreset === "impact-shake" ? 0.026 : 0.035)
+      : 0;
   const shakeAmount =
-    autoReframe && effectPreset === "impact-shake"
-      ? Math.sin(frame * 2.4 + index) * pulse * Math.max(3, width * 0.006)
+    autoReframe && resolvedPreset === "impact-shake"
+      ? Math.sin(frame * 2.4 + index) *
+        pulse *
+        Math.max(3, width * 0.006) *
+        (0.65 + clip.effectStrength * 0.7)
       : 0;
   const transform = autoReframe
     ? `translate3d(${shakeAmount}px, 0, 0) scale(${scale + effectScale})`
     : undefined;
-  const overlayOpacity = flashOpacity(pulse, effectPreset);
+  const overlayOpacity = flashOpacity(pulse, resolvedPreset, clip.effectStrength);
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>

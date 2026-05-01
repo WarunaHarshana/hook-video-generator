@@ -20,7 +20,17 @@ type HighlightSegment = {
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
-type EffectPreset = "clean" | "beat-punch" | "flash-cuts" | "impact-shake";
+type EffectPreset =
+  | "clean"
+  | "auto"
+  | "beat-punch"
+  | "flash-cuts"
+  | "impact-shake";
+
+type BeatEvent = {
+  time: number;
+  strength: number;
+};
 
 type BeatSyncSettings = {
   enabled: boolean;
@@ -38,6 +48,7 @@ type MusicSettings = {
   enabled: boolean;
   useEntireFile?: boolean;
   beats?: number[];
+  beatEvents?: BeatEvent[];
   beatSync?: BeatSyncSettings;
   detected?: {
     score?: number;
@@ -189,6 +200,7 @@ const outputAspectRatios = new Set<OutputAspectRatio>([
 const reframeModes = new Set<ReframeMode>(["none", "auto"]);
 const effectPresets = new Set<EffectPreset>([
   "clean",
+  "auto",
   "beat-punch",
   "flash-cuts",
   "impact-shake",
@@ -244,6 +256,14 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
         .map((beat) => Number(beat))
         .filter((beat) => Number.isFinite(beat) && beat >= 0)
     : undefined;
+  const beatEvents = Array.isArray(input.beatEvents)
+    ? input.beatEvents
+        .map((beat) => ({
+          time: normalizeNumber(beat?.time, -1),
+          strength: clampNumber(beat?.strength, 0.18, 1, 0.5),
+        }))
+        .filter((beat) => beat.time >= 0)
+    : undefined;
 
   return {
     src: input.src.trim(),
@@ -256,6 +276,7 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
     enabled: input.enabled !== false,
     useEntireFile: Boolean(input.useEntireFile),
     beats,
+    beatEvents,
     beatSync: {
       enabled: Boolean(beatSync?.enabled),
       intensity: normalizeBeatSyncIntensity(beatSync?.intensity),

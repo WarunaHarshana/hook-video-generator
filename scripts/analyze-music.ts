@@ -11,6 +11,11 @@ type Candidate = {
   energy: number;
 };
 
+type BeatEvent = {
+  time: number;
+  strength: number;
+};
+
 type AnalysisResult = {
   music: {
     src: string;
@@ -23,6 +28,7 @@ type AnalysisResult = {
     enabled: boolean;
     useEntireFile: boolean;
     beats: number[];
+    beatEvents: BeatEvent[];
     beatSync: {
       enabled: boolean;
       intensity: "loose" | "tight" | "fast";
@@ -55,6 +61,10 @@ const readNumberFlag = (name: string, fallback: number) => {
 
 const readBooleanFlag = (name: string) => {
   return process.argv.includes(name);
+};
+
+const clamp = (value: number, min: number, max: number) => {
+  return Math.min(Math.max(value, min), max);
 };
 
 const runBuffered = async (command: string, args: string[]) => {
@@ -158,7 +168,21 @@ const standardDeviation = (values: number[], average: number) => {
   return Math.sqrt(variance);
 };
 
-const detectBeats = (pcm: Buffer, audioDuration: number) => {
+const normalizeBeatEvents = (
+  events: Array<{time: number; rawStrength: number}>,
+) => {
+  const maxStrength = Math.max(
+    ...events.map((event) => event.rawStrength),
+    0.0001,
+  );
+
+  return events.map((event) => ({
+    time: Number(event.time.toFixed(3)),
+    strength: Number(clamp(event.rawStrength / maxStrength, 0.18, 1).toFixed(3)),
+  }));
+};
+
+const detectBeatEvents = (pcm: Buffer, audioDuration: number): BeatEvent[] => {
   const energy = rmsWindows(pcm, BEAT_WINDOW_SAMPLES);
   if (energy.length < 8) {
     return [];
@@ -173,7 +197,7 @@ const detectBeats = (pcm: Buffer, audioDuration: number) => {
   const average = mean(novelty);
   const deviation = standardDeviation(novelty, average);
   const threshold = average + deviation * 0.72;
-  const beats: number[] = [];
+  const beats: Array<{time: number; rawStrength: number}> = [];
   const minGap = 0.24;
 
   for (let index = 1; index < novelty.length - 1; index += 1) {
@@ -186,23 +210,23 @@ const detectBeats = (pcm: Buffer, audioDuration: number) => {
       continue;
     }
 
-    const previousBeat = beats.at(-1) ?? -Infinity;
-    if (time - previousBeat < minGap) {
-      const previousIndex = Math.round(previousBeat / BEAT_WINDOW_SECONDS);
-      if (current > (novelty[previousIndex] ?? 0)) {
-        beats[beats.length - 1] = time;
+    const rawStrength = current + (energy[index] / maxEnergy) * 0.35;
+    const previousBeat = beats.at(-1);
+    if (previousBeat && time - previousBeat.time < minGap) {
+      if (rawStrength > previousBeat.rawStrength) {
+        beats[beats.length - 1] = {time, rawStrength};
       }
       continue;
     }
 
-    beats.push(time);
+    beats.push({time, rawStrength});
   }
 
   if (beats.length >= 4) {
-    return beats.map((beat) => Number(beat.toFixed(3)));
+    return normalizeBeatEvents(beats);
   }
 
-  return energy
+  const fallback = energy
     .map((value, index) => ({
       time: index * BEAT_WINDOW_SECONDS,
       value,
@@ -213,15 +237,16 @@ const detectBeats = (pcm: Buffer, audioDuration: number) => {
       return item.value >= previous && item.value > next && item.value / maxEnergy > 0.24;
     })
     .sort((a, b) => b.value - a.value)
-    .reduce<number[]>((selected, item) => {
-      if (selected.every((beat) => Math.abs(beat - item.time) >= minGap)) {
-        selected.push(item.time);
+    .reduce<Array<{time: number; rawStrength: number}>>((selected, item) => {
+      if (selected.every((beat) => Math.abs(beat.time - item.time) >= minGap)) {
+        selected.push({time: item.time, rawStrength: item.value});
       }
 
       return selected;
     }, [])
-    .sort((a, b) => a - b)
-    .map((beat) => Number(beat.toFixed(3)));
+    .sort((a, b) => a.time - b.time);
+
+  return normalizeBeatEvents(fallback);
 };
 
 const rankCandidates = (
@@ -320,7 +345,8 @@ const main = async () => {
   process.stdout.write("PROGRESS 25 Preparing audio decode\n");
   process.stdout.write("PROGRESS 40 Measuring music energy\n");
   const pcm = await decodeAudio(input);
-  const beats = detectBeats(pcm, audioDuration);
+  const beatEvents = detectBeatEvents(pcm, audioDuration);
+  const beats = beatEvents.map((beat) => beat.time);
 
   process.stdout.write("PROGRESS 75 Ranking the strongest music section\n");
   const candidates = rankCandidates(
@@ -350,6 +376,7 @@ const main = async () => {
       enabled: true,
       useEntireFile,
       beats,
+      beatEvents,
       beatSync: {
         enabled: false,
         intensity: "tight",
