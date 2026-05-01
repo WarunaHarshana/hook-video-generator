@@ -2,31 +2,49 @@
 
 Create short hook videos from one source video.
 
-The app finds strong highlight moments, shows preview thumbnails, lets you adjust the clips, and renders a final hook video. By default it keeps the original source aspect ratio and resolution. You can also export common social formats like vertical, square, portrait, and landscape with auto reframe.
+Hook Video Generator finds strong moments in a source video, lets you review and edit the highlight list, optionally cuts clips to music beats, and renders a final hook video. It can keep the source video original, or export common social formats with auto reframe.
+
+![Hook Video Generator UI](docs/assets/ui-overview-clean.png)
+
+## User Guide
+
+A full PDF guide with screenshots is included:
+
+[Open the user guide PDF](docs/HookVideoGenerator_User_Guide.pdf)
 
 ## Features
 
 - Choose one source video from your computer.
-- Automatically find hook-worthy highlight moments.
-- Review each hook with a thumbnail preview.
-- Preview any hook before rendering.
-- Edit start time and duration for each hook.
-- Remove weak hooks before export.
-- Add a background music file or direct media URL and auto-detect a strong music section.
-- Control music volume and original source volume.
+- Analyze the video to find hook-worthy highlight moments.
+- Review highlights with thumbnail previews.
+- Preview individual highlights before rendering.
+- Edit each highlight start time and duration.
+- Add or remove highlights manually.
+- Add a local music file or direct media file URL.
+- Analyze music to find a strong section automatically.
+- Listen to the full music file and the analyzed music section.
+- Automatically detect beats in the music.
+- Auto-select beat style based on the music rhythm.
+- Cut highlights to music beats.
+- Control background music volume and original source audio volume.
+- Choose visual effects: clean cuts, auto reactive, beat punch, flash cuts, or impact shake.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
 - Auto reframe when exporting to a different aspect ratio.
-- Keep the original source audio.
-- Choose CPU or GPU rendering.
-- Cancel long analyze or render jobs.
+- Choose CPU, GPU, or automatic render mode.
+- Pick the output path with a file chooser.
+- Cancel long analyze, music analyze, or render jobs.
+- See live progress while jobs run.
+- Clear app-created workspace files safely after rendering.
 
-## Install
+## Start The App
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-## Start The App
+Start the UI:
 
 ```bash
 npm run ui
@@ -40,54 +58,58 @@ http://127.0.0.1:3210
 
 If port `3210` is already in use, the app will show the next available URL in the terminal.
 
-## Workflow
+## Basic Workflow
 
 1. Click `Choose` beside `Source video path`.
 2. Select your source video.
 3. Adjust `Clip seconds`, `Max clips`, and `Scene threshold` if needed.
 4. Click `Analyze Hooks`.
-5. Review the generated hook thumbnails.
-6. Click a thumbnail to preview that moment.
-7. Edit `Start` or `Duration`, or remove clips you do not want.
-8. Choose a music file if you want background music.
-9. Click `Analyze Music` to find a strong music section automatically.
-10. Adjust the music start, duration, and volumes if needed.
-11. Choose the final aspect ratio.
-12. Click `Save` if you changed the hook list.
-13. Click `Render Final Hook`.
+5. Review the generated highlight thumbnails.
+6. Edit `Start` or `Duration`, or remove weak clips.
+7. Add music if you want background music.
+8. Click `Analyze Music` to find a strong music section and auto-pick beat style.
+9. Enable `Cut highlights to music beats` if you want rhythm-based cuts.
+10. Choose the final aspect ratio and effects.
+11. Choose the output path.
+12. Click `Render Final Hook`.
 
-The rendered video is saved to the selected output path. The default output is `hook.mp4`.
+## Music And Beat Sync
 
-## Output Options
+- `Analyze Music` finds a strong music section for the final hook duration.
+- `Beat style` is selected automatically after music analysis.
+- `Loose` creates slower, longer rhythm cuts.
+- `Tight` is the balanced default for most hooks.
+- `Fast` creates quicker cuts for dense, energetic beats.
+- `Auto reactive` effects use detected beat strength to make stronger beats feel more impactful.
 
-- `Source original`: keeps the source video's original size and aspect ratio.
+## Export Options
+
+- `Source original`: keeps the original source resolution and aspect ratio.
 - `9:16 vertical`: good for TikTok, Shorts, and Reels.
 - `1:1 square`: good for square social posts.
 - `4:5 portrait`: good for feed-style vertical posts.
 - `16:9 landscape`: good for YouTube-style landscape videos.
-- `Auto reframe`: fills the selected aspect ratio by reframing the video.
-
-## Music Options
-
-- `Choose`: select a local audio or video file to use as background music.
-- `Music URL`: use a direct audio or video file URL.
-- `Analyze Music`: finds a high-energy section that fits the hook video length.
-- `Music start`: where the music section begins.
-- `Music seconds`: how long the selected music section should play.
-- `Music volume`: background music volume in the final render.
-- `Source volume`: original video audio volume in the final render.
-- `Use music in final render`: turn the music layer on or off.
+- `Auto reframe`: reframes video when the final aspect ratio changes.
 
 ## Render Options
 
-- `Auto GPU`: tries hardware acceleration when available.
-- `Force GPU`: requires hardware acceleration.
+- `Auto GPU`: uses hardware acceleration when available.
+- `Force GPU`: requests GPU rendering.
 - `CPU only`: renders without GPU acceleration.
-- `Concurrency`: controls how many render workers run at once. Lower it if your computer feels overloaded.
+- `GL`: choose the graphics backend. Start with `angle`; try `swiftshader` if GPU rendering fails.
+- `Concurrency`: controls how many render workers run at once.
 - `Timeout min`: increase this for very large or slow videos.
+
+## Output
+
+The rendered hook is saved to the selected output path. The default is:
+
+```text
+hook.mp4
+```
 
 ## Requirements
 
 - Node.js
 - npm
-- A computer that can run Chromium-based video rendering
+- A Chromium-based rendering environment
