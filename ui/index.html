@@ -122,6 +122,20 @@
             <input id="musicEnabled" type="checkbox" checked />
             <span>Use music in final render</span>
           </label>
+          <div class="beat-sync-controls">
+            <label class="checkbox-control" for="beatSyncEnabled">
+              <input id="beatSyncEnabled" type="checkbox" />
+              <span>Cut highlights to music beats</span>
+            </label>
+            <div class="field">
+              <label for="beatSyncIntensity">Beat style</label>
+              <select id="beatSyncIntensity">
+                <option value="loose">Loose</option>
+                <option value="tight" selected>Tight</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+          </div>
           <div class="music-status" id="musicStatus">No music selected</div>
         </div>
 

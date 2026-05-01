@@ -1,5 +1,9 @@
 import {Composition, type CalculateMetadataFunction} from "remotion";
-import {HookVideo, type HookVideoInputProps} from "./HookVideo";
+import {
+  HookVideo,
+  getHookDurationSeconds,
+  type HookVideoInputProps,
+} from "./HookVideo";
 
 const DEFAULT_FPS = 30;
 const DEFAULT_WIDTH = 1920;
@@ -39,10 +43,10 @@ const normalizeHighlights = (highlights: HookVideoInputProps["highlights"]) => {
 
 const durationInFramesFromProps = (props: HookVideoInputProps) => {
   const fps = finitePositive(props.fps, DEFAULT_FPS);
-  const seconds = normalizeHighlights(props.highlights).reduce(
-    (sum, highlight) => sum + highlight.duration,
-    0,
-  );
+  const seconds = getHookDurationSeconds({
+    highlights: normalizeHighlights(props.highlights),
+    music: props.music,
+  });
 
   return Math.max(1, Math.round(seconds * fps));
 };

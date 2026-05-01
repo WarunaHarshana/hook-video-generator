@@ -40,6 +40,8 @@ const els = {
   musicVolume: document.querySelector("#musicVolume"),
   sourceVolume: document.querySelector("#sourceVolume"),
   musicEnabled: document.querySelector("#musicEnabled"),
+  beatSyncEnabled: document.querySelector("#beatSyncEnabled"),
+  beatSyncIntensity: document.querySelector("#beatSyncIntensity"),
   musicStatus: document.querySelector("#musicStatus"),
   musicProgressPhase: document.querySelector("#musicProgressPhase"),
   musicProgressPercent: document.querySelector("#musicProgressPercent"),
@@ -89,6 +91,25 @@ const totalHighlightSeconds = () => {
   );
 };
 
+const beatSyncedDurationSeconds = (project = state.project) => {
+  const baseDuration = (project?.highlights || []).reduce(
+    (sum, highlight) => sum + Math.max(0, Number(highlight.duration) || 0),
+    0,
+  );
+  const music = project?.music;
+
+  if (
+    !music?.enabled ||
+    !music.beatSync?.enabled ||
+    !Array.isArray(music.beats) ||
+    music.beats.length < 2
+  ) {
+    return baseDuration;
+  }
+
+  return Math.min(baseDuration, Math.max(0.1, Number(music.duration) || baseDuration));
+};
+
 const setStatus = (text, className = "") => {
   els.statusPill.textContent = `Status: ${text}`;
   els.statusPill.className = `status-pill ${className}`.trim();
@@ -120,6 +141,10 @@ const setBusy = (busy) => {
   els.musicVolume.disabled = busy || !hasMusicSource;
   els.sourceVolume.disabled = busy || !hasMusicSource;
   els.musicEnabled.disabled = busy || !hasMusicSource;
+  const hasAnalyzedBeats = Boolean(state.project?.music?.beats?.length);
+  els.beatSyncEnabled.disabled = busy || !hasMusicSource || !hasAnalyzedBeats;
+  els.beatSyncIntensity.disabled =
+    busy || !hasMusicSource || !hasAnalyzedBeats || !els.beatSyncEnabled.checked;
   els.renderMode.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
@@ -236,17 +261,22 @@ const musicFromControls = () => {
   if (!src) {
     return undefined;
   }
+  const existingMusic = state.project?.music || {};
 
   return {
-    ...(state.project?.music || {}),
+    ...existingMusic,
     src,
     start: Math.max(0, Number(els.musicStart.value) || 0),
     duration: Math.max(0.1, Number(els.musicDuration.value) || totalHighlightSeconds() || 15),
     volume: Math.max(0, Math.min(Number(els.musicVolume.value) || 0, 1)),
     sourceVolume: Math.max(0, Math.min(Number(els.sourceVolume.value) || 0, 1)),
-    fadeSeconds: state.project?.music?.fadeSeconds ?? 1,
+    fadeSeconds: existingMusic.fadeSeconds ?? 1,
     loop: true,
     enabled: els.musicEnabled.checked,
+    beatSync: {
+      enabled: els.beatSyncEnabled.checked,
+      intensity: els.beatSyncIntensity.value || "tight",
+    },
   };
 };
 
@@ -268,7 +298,11 @@ const musicSummary = (music) => {
 
   const score = Number(music.detected?.score);
   const scoreText = Number.isFinite(score) ? ` · score ${score.toFixed(2)}` : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}`;
+  const beatCount = Number(music.detected?.beatCount);
+  const beatsText = Number.isFinite(beatCount) && beatCount > 0
+    ? ` · ${beatCount} beat${beatCount === 1 ? "" : "s"}`
+    : "";
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}`;
 };
 
 const updateMusicPreview = () => {
@@ -314,6 +348,8 @@ const renderMusicControls = (music) => {
   els.musicVolume.value = music ? music.volume : 0.35;
   els.sourceVolume.value = music ? music.sourceVolume : 0.75;
   els.musicEnabled.checked = music ? music.enabled !== false : false;
+  els.beatSyncEnabled.checked = Boolean(music?.beatSync?.enabled);
+  els.beatSyncIntensity.value = music?.beatSync?.intensity || "tight";
   updateMusicPreview();
   if (music?.detected) {
     setMusicProgress(100, "Music analyzed");
@@ -343,6 +379,15 @@ const refreshMusicReadiness = () => {
       "Analyze hooks first",
       "Music selected. Analyze hooks first so the app knows the final hook duration.",
       0,
+    );
+    return;
+  }
+
+  if (state.project.music?.beats?.length) {
+    setMusicNotice(
+      "Music analyzed",
+      `Music selected with ${state.project.music.beats.length} detected beats. Enable beat sync to cut on rhythm.`,
+      100,
     );
     return;
   }
@@ -493,7 +538,7 @@ const renderMetrics = () => {
         `${project.width}x${project.height}`,
         Number(project.fps).toFixed(3),
         String(project.highlights.length),
-        seconds(totalHighlightSeconds()),
+        seconds(beatSyncedDurationSeconds(project)),
       ]
     : ["-", "-", "-", "-"];
 
@@ -785,7 +830,9 @@ const applyJobUpdate = async (job, options = {}) => {
 
   if (job.kind === "music") {
     setMusicProgress(100, "Music analysis complete");
-    els.musicStatus.textContent = "Strongest music section selected for the final hook.";
+    els.musicStatus.textContent = state.project?.music?.beats?.length
+      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats.`
+      : "Strongest music section selected for the final hook.";
     return;
   }
 
@@ -1077,6 +1124,8 @@ els.removeMusicBtn.addEventListener("click", async () => {
 
   renderMusicControls(undefined);
   setMusicProgress(0, "Music ready");
+  els.beatSyncEnabled.checked = false;
+  els.beatSyncIntensity.value = "tight";
   setBusy(isActiveJob());
 });
 
@@ -1132,12 +1181,21 @@ els.autoReframe.addEventListener("change", () => {
   els.musicVolume,
   els.sourceVolume,
   els.musicEnabled,
+  els.beatSyncEnabled,
+  els.beatSyncIntensity,
 ].forEach((input) => {
   input.addEventListener("input", () => {
     applyMusicToProject();
     updateMusicPreview();
     if (input === els.musicPath || input === els.musicUrl) {
       refreshMusicReadiness();
+    }
+    if (
+      input === els.musicDuration ||
+      input === els.beatSyncEnabled ||
+      input === els.beatSyncIntensity
+    ) {
+      renderMetrics();
     }
     setBusy(isActiveJob());
   });
@@ -1146,6 +1204,13 @@ els.autoReframe.addEventListener("change", () => {
     updateMusicPreview();
     if (input === els.musicPath || input === els.musicUrl) {
       refreshMusicReadiness();
+    }
+    if (
+      input === els.musicDuration ||
+      input === els.beatSyncEnabled ||
+      input === els.beatSyncIntensity
+    ) {
+      renderMetrics();
     }
     setBusy(isActiveJob());
   });

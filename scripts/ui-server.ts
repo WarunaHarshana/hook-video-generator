@@ -18,6 +18,12 @@ type HighlightSegment = {
 
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
+type BeatSyncIntensity = "loose" | "tight" | "fast";
+
+type BeatSyncSettings = {
+  enabled: boolean;
+  intensity: BeatSyncIntensity;
+};
 
 type MusicSettings = {
   src: string;
@@ -28,9 +34,12 @@ type MusicSettings = {
   fadeSeconds: number;
   loop: boolean;
   enabled: boolean;
+  beats?: number[];
+  beatSync?: BeatSyncSettings;
   detected?: {
     score?: number;
     audioDuration?: number;
+    beatCount?: number;
     candidates?: Array<{
       start: number;
       duration: number;
@@ -174,6 +183,11 @@ const outputAspectRatios = new Set<OutputAspectRatio>([
 ]);
 
 const reframeModes = new Set<ReframeMode>(["none", "auto"]);
+const beatSyncIntensities = new Set<BeatSyncIntensity>([
+  "loose",
+  "tight",
+  "fast",
+]);
 
 const normalizeOutputAspectRatio = (value: unknown): OutputAspectRatio => {
   return typeof value === "string" && outputAspectRatios.has(value as OutputAspectRatio)
@@ -185,6 +199,13 @@ const normalizeReframeMode = (value: unknown): ReframeMode => {
   return typeof value === "string" && reframeModes.has(value as ReframeMode)
     ? (value as ReframeMode)
     : "none";
+};
+
+const normalizeBeatSyncIntensity = (value: unknown): BeatSyncIntensity => {
+  return typeof value === "string" &&
+    beatSyncIntensities.has(value as BeatSyncIntensity)
+    ? (value as BeatSyncIntensity)
+    : "tight";
 };
 
 const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
@@ -201,6 +222,12 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
   if (!input.src?.trim()) {
     return undefined;
   }
+  const beatSync = input.beatSync;
+  const beats = Array.isArray(input.beats)
+    ? input.beats
+        .map((beat) => Number(beat))
+        .filter((beat) => Number.isFinite(beat) && beat >= 0)
+    : undefined;
 
   return {
     src: input.src.trim(),
@@ -211,6 +238,11 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
     fadeSeconds: clampNumber(input.fadeSeconds, 0, 10, 1),
     loop: Boolean(input.loop),
     enabled: input.enabled !== false,
+    beats,
+    beatSync: {
+      enabled: Boolean(beatSync?.enabled),
+      intensity: normalizeBeatSyncIntensity(beatSync?.intensity),
+    },
     detected: input.detected,
   };
 };
@@ -1373,11 +1405,15 @@ const routeApi = async (
             music?: MusicSettings;
           };
           const currentProject = await loadProject();
-          const music = normalizeMusicSettings(result.music);
+          const analyzedMusic = normalizeMusicSettings(result.music);
 
-          if (!currentProject || !music) {
+          if (!currentProject || !analyzedMusic) {
             throw new Error("Music analysis finished but no result was found.");
           }
+          const music = {
+            ...analyzedMusic,
+            beatSync: currentProject.music?.beatSync ?? analyzedMusic.beatSync,
+          };
 
           const nextProject = validateProject({
             ...currentProject,
