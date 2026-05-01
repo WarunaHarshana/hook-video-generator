@@ -164,15 +164,14 @@ export const buildBeatSyncedHighlights = (
   const synced: HighlightSegment[] = [];
   let cursor = 0;
   let boundaryIndex = 1;
-  let sourceIndex = 0;
-  const maxClips = Math.min(
-    180,
-    Math.max(highlights.length, Math.ceil(targetDuration / config.min) + 2),
-  );
+  const maxClips = 180;
 
-  while (cursor < targetDuration - 0.05 && synced.length < maxClips) {
-    const minCut = cursor + config.min;
-    const maxCut = Math.min(cursor + config.max, targetDuration);
+  const nextBeatBoundary = (remainingSource: number) => {
+    const maxDuration = Math.min(config.max, remainingSource, targetDuration - cursor);
+    const minDuration = Math.min(config.min, maxDuration);
+    const minCut = cursor + minDuration;
+    const maxCut = cursor + maxDuration;
+
     while (boundaryIndex < boundaries.length && boundaries[boundaryIndex] <= cursor + 0.05) {
       boundaryIndex += 1;
     }
@@ -180,33 +179,55 @@ export const buildBeatSyncedHighlights = (
     const candidateBoundaries = boundaries.filter(
       (boundary) => boundary >= minCut && boundary <= maxCut,
     );
-    let nextBoundary =
+    const preferredBoundary =
       candidateBoundaries[Math.min(config.beatsPerCut - 1, candidateBoundaries.length - 1)];
 
-    if (typeof nextBoundary !== "number") {
-      nextBoundary = Math.min(targetDuration, cursor + config.ideal);
-    } else {
-      nextBoundary = candidateBoundaries.reduce((best, boundary) => {
-        const current = Math.abs(boundary - (cursor + config.ideal));
-        const previous = Math.abs(best - (cursor + config.ideal));
-        return current < previous ? boundary : best;
-      }, nextBoundary);
+    if (typeof preferredBoundary !== "number") {
+      return Math.min(targetDuration, cursor + Math.min(config.ideal, maxDuration));
     }
 
-    const duration = Math.max(0.08, nextBoundary - cursor);
-    const source = highlights[sourceIndex % highlights.length];
-    const usableOffset = Math.max(0, source.duration - duration);
-    const phase = Math.floor(sourceIndex / highlights.length);
-    const offset = usableOffset > 0 ? (phase * duration * 0.65) % usableOffset : 0;
+    return candidateBoundaries.reduce((best, boundary) => {
+      const current = Math.abs(boundary - (cursor + config.ideal));
+      const previous = Math.abs(best - (cursor + config.ideal));
+      return current < previous ? boundary : best;
+    }, preferredBoundary);
+  };
 
-    synced.push({
-      start: Number((source.start + offset).toFixed(3)),
-      duration: Number(duration.toFixed(3)),
-    });
+  for (const source of highlights) {
+    let sourceCursor = 0;
 
-    cursor = nextBoundary;
-    boundaryIndex += 1;
-    sourceIndex += 1;
+    while (
+      sourceCursor < source.duration - 0.05 &&
+      cursor < targetDuration - 0.05 &&
+      synced.length < maxClips
+    ) {
+      const remainingSource = source.duration - sourceCursor;
+      const nextBoundary = nextBeatBoundary(remainingSource);
+      const duration = Math.min(
+        Math.max(0.08, nextBoundary - cursor),
+        remainingSource,
+        targetDuration - cursor,
+      );
+
+      if (duration < 0.08) {
+        break;
+      }
+
+      synced.push({
+        start: Number((source.start + sourceCursor).toFixed(3)),
+        duration: Number(duration.toFixed(3)),
+      });
+
+      cursor += duration;
+      sourceCursor += duration;
+      if (Math.abs(cursor - nextBoundary) < 0.04) {
+        boundaryIndex += 1;
+      }
+    }
+
+    if (cursor >= targetDuration - 0.05 || synced.length >= maxClips) {
+      break;
+    }
   }
 
   return synced.length > 0 ? synced : highlights;
