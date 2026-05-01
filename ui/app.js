@@ -338,7 +338,9 @@ const musicSummary = (music) => {
   const beatsText = Number.isFinite(beatCount) && beatCount > 0
     ? ` · ${beatCount} beat${beatCount === 1 ? "" : "s"}`
     : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}`;
+  const style = music.detected?.suggestedBeatStyle || music.beatSync?.intensity;
+  const styleText = style ? ` · ${style} style` : "";
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}`;
 };
 
 const updateMusicPreview = () => {
@@ -421,9 +423,12 @@ const refreshMusicReadiness = () => {
   }
 
   if (state.project.music?.beats?.length) {
+    const style = state.project.music.detected?.suggestedBeatStyle ||
+      state.project.music.beatSync?.intensity ||
+      "tight";
     setMusicNotice(
       "Music analyzed",
-      `Music selected with ${state.project.music.beats.length} detected beats. Enable beat sync to cut on rhythm.`,
+      `Music selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`,
       100,
     );
     return;
@@ -923,8 +928,11 @@ const applyJobUpdate = async (job, options = {}) => {
 
   if (job.kind === "music") {
     setMusicProgress(100, "Music analysis complete");
+    const style = state.project?.music?.detected?.suggestedBeatStyle ||
+      state.project?.music?.beatSync?.intensity ||
+      "tight";
     els.musicStatus.textContent = state.project?.music?.beats?.length
-      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats.`
+      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`
       : "Strongest music section selected for the final hook.";
     return;
   }

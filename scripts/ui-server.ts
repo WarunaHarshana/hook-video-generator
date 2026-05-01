@@ -54,6 +54,8 @@ type MusicSettings = {
     score?: number;
     audioDuration?: number;
     beatCount?: number;
+    averageBeatGap?: number;
+    suggestedBeatStyle?: BeatSyncIntensity;
     candidates?: Array<{
       start: number;
       duration: number;
@@ -1482,7 +1484,10 @@ const routeApi = async (
           }
           const music = {
             ...analyzedMusic,
-            beatSync: currentProject.music?.beatSync ?? analyzedMusic.beatSync,
+            beatSync: {
+              enabled: Boolean(currentProject.music?.beatSync?.enabled),
+              intensity: analyzedMusic.beatSync?.intensity ?? "tight",
+            },
           };
 
           const nextProject = validateProject({

@@ -16,6 +16,8 @@ type BeatEvent = {
   strength: number;
 };
 
+type BeatSyncIntensity = "loose" | "tight" | "fast";
+
 type AnalysisResult = {
   music: {
     src: string;
@@ -31,12 +33,14 @@ type AnalysisResult = {
     beatEvents: BeatEvent[];
     beatSync: {
       enabled: boolean;
-      intensity: "loose" | "tight" | "fast";
+      intensity: BeatSyncIntensity;
     };
     detected: {
       score: number;
       audioDuration: number;
       beatCount: number;
+      averageBeatGap: number;
+      suggestedBeatStyle: BeatSyncIntensity;
       candidates: Candidate[];
     };
   };
@@ -166,6 +170,18 @@ const standardDeviation = (values: number[], average: number) => {
     values.reduce((sum, value) => sum + (value - average) ** 2, 0) /
     values.length;
   return Math.sqrt(variance);
+};
+
+const median = (values: number[]) => {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
 };
 
 const normalizeBeatEvents = (
@@ -323,6 +339,50 @@ const rankCandidates = (
   return selected;
 };
 
+const suggestBeatStyle = (
+  beats: number[],
+  selectedStart: number,
+  selectedDuration: number,
+): {intensity: BeatSyncIntensity; averageGap: number; beatCount: number} => {
+  const selectedBeats = beats.filter(
+    (beat) => beat >= selectedStart && beat <= selectedStart + selectedDuration,
+  );
+
+  if (selectedBeats.length < 2) {
+    return {intensity: "tight", averageGap: 0, beatCount: selectedBeats.length};
+  }
+
+  const gaps = selectedBeats
+    .slice(1)
+    .map((beat, index) => beat - selectedBeats[index])
+    .filter((gap) => Number.isFinite(gap) && gap > 0);
+  const averageGap = median(gaps);
+  const beatsPerSecond =
+    selectedDuration > 0 ? selectedBeats.length / selectedDuration : 0;
+
+  if (averageGap <= 0.58 || beatsPerSecond >= 1.85) {
+    return {
+      intensity: "fast",
+      averageGap: Number(averageGap.toFixed(3)),
+      beatCount: selectedBeats.length,
+    };
+  }
+
+  if (averageGap >= 1.05 || beatsPerSecond <= 0.9) {
+    return {
+      intensity: "loose",
+      averageGap: Number(averageGap.toFixed(3)),
+      beatCount: selectedBeats.length,
+    };
+  }
+
+  return {
+    intensity: "tight",
+    averageGap: Number(averageGap.toFixed(3)),
+    beatCount: selectedBeats.length,
+  };
+};
+
 const main = async () => {
   const input = readFlag("--input");
   const out = path.resolve(readFlag("--out") ?? ".tmp/music-analysis.json");
@@ -364,6 +424,7 @@ const main = async () => {
   const selectedDuration = useEntireFile
     ? Number(audioDuration.toFixed(3))
     : best.duration;
+  const beatStyle = suggestBeatStyle(beats, selectedStart, selectedDuration);
   const result: AnalysisResult = {
     music: {
       src: path.resolve(input),
@@ -379,15 +440,14 @@ const main = async () => {
       beatEvents,
       beatSync: {
         enabled: false,
-        intensity: "tight",
+        intensity: beatStyle.intensity,
       },
       detected: {
         score: best.score,
         audioDuration: Number(audioDuration.toFixed(3)),
-        beatCount: beats.filter(
-          (beat) =>
-            beat >= selectedStart && beat <= selectedStart + selectedDuration,
-        ).length,
+        beatCount: beatStyle.beatCount,
+        averageBeatGap: beatStyle.averageGap,
+        suggestedBeatStyle: beatStyle.intensity,
         candidates,
       },
     },
