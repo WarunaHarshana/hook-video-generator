@@ -10,6 +10,7 @@ import path from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
 import ffmpegPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 
 type HighlightSegment = {
   start: number;
@@ -34,6 +35,7 @@ type MusicSettings = {
   fadeSeconds: number;
   loop: boolean;
   enabled: boolean;
+  useEntireFile?: boolean;
   beats?: number[];
   beatSync?: BeatSyncSettings;
   detected?: {
@@ -238,6 +240,7 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
     fadeSeconds: clampNumber(input.fadeSeconds, 0, 10, 1),
     loop: Boolean(input.loop),
     enabled: input.enabled !== false,
+    useEntireFile: Boolean(input.useEntireFile),
     beats,
     beatSync: {
       enabled: Boolean(beatSync?.enabled),
@@ -266,6 +269,32 @@ const assertSupportedMusicSource = (value: string) => {
     throw new Error(
       "YouTube links are not downloaded by this app. Use a local music file or a direct audio/video file URL.",
     );
+  }
+};
+
+const probeMediaDuration = async (input: string) => {
+  const ffprobe = ffprobeStatic.path || "ffprobe";
+  try {
+    const {stdout} = await execFileAsync(
+      ffprobe,
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        input,
+      ],
+      {maxBuffer: 1024 * 1024, windowsHide: true},
+    );
+    const duration = Number(String(stdout).trim());
+
+    return Number.isFinite(duration) && duration > 0
+      ? Number(duration.toFixed(3))
+      : null;
+  } catch {
+    return null;
   }
 };
 
@@ -1295,6 +1324,7 @@ const routeApi = async (
       src,
       name: path.basename(src),
       size: existsSync(src) ? statSync(src).size : 0,
+      duration: await probeMediaDuration(src),
     });
     return;
   }
@@ -1362,7 +1392,7 @@ const routeApi = async (
   }
 
   if (req.method === "POST" && url.pathname === "/api/analyze-music") {
-    const body = await parseBody<{input?: string}>(req);
+    const body = await parseBody<{input?: string; useEntireFile?: boolean}>(req);
     const input = body.input?.trim();
     const project = await loadProject();
 
@@ -1392,6 +1422,9 @@ const routeApi = async (
       "--target-duration",
       String(Math.max(3, targetDuration)),
     ];
+    if (body.useEntireFile) {
+      args.push("--use-entire-file");
+    }
 
     sendJson(
       res,

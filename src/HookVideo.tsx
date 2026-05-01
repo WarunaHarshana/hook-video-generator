@@ -34,6 +34,7 @@ export type MusicSettings = {
   fadeSeconds: number;
   loop: boolean;
   enabled: boolean;
+  useEntireFile?: boolean;
   beats?: number[];
   beatSync?: BeatSyncSettings;
 };

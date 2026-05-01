@@ -21,6 +21,7 @@ type AnalysisResult = {
     fadeSeconds: number;
     loop: boolean;
     enabled: boolean;
+    useEntireFile: boolean;
     beats: number[];
     beatSync: {
       enabled: boolean;
@@ -50,6 +51,10 @@ const readNumberFlag = (name: string, fallback: number) => {
   const value = readFlag(name);
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const readBooleanFlag = (name: string) => {
+  return process.argv.includes(name);
 };
 
 const runBuffered = async (command: string, args: string[]) => {
@@ -300,6 +305,7 @@ const main = async () => {
     3,
     Math.min(60, readNumberFlag("--target-duration", 18)),
   );
+  const useEntireFile = readBooleanFlag("--use-entire-file");
 
   if (!input) {
     throw new Error("--input is required.");
@@ -307,7 +313,9 @@ const main = async () => {
 
   process.stdout.write("PROGRESS 10 Reading music metadata\n");
   const audioDuration = await probeDuration(input);
-  const effectiveDuration = Math.max(3, Math.min(targetDuration, audioDuration));
+  const effectiveDuration = useEntireFile
+    ? audioDuration
+    : Math.max(3, Math.min(targetDuration, audioDuration));
 
   process.stdout.write("PROGRESS 25 Preparing audio decode\n");
   process.stdout.write("PROGRESS 40 Measuring music energy\n");
@@ -326,16 +334,21 @@ const main = async () => {
     score: 0,
     energy: 0,
   };
+  const selectedStart = useEntireFile ? 0 : best.start;
+  const selectedDuration = useEntireFile
+    ? Number(audioDuration.toFixed(3))
+    : best.duration;
   const result: AnalysisResult = {
     music: {
       src: path.resolve(input),
-      start: best.start,
-      duration: best.duration,
+      start: selectedStart,
+      duration: selectedDuration,
       volume: 0.35,
       sourceVolume: 0.75,
       fadeSeconds: 1,
       loop: true,
       enabled: true,
+      useEntireFile,
       beats,
       beatSync: {
         enabled: false,
@@ -345,7 +358,8 @@ const main = async () => {
         score: best.score,
         audioDuration: Number(audioDuration.toFixed(3)),
         beatCount: beats.filter(
-          (beat) => beat >= best.start && beat <= best.start + best.duration,
+          (beat) =>
+            beat >= selectedStart && beat <= selectedStart + selectedDuration,
         ).length,
         candidates,
       },

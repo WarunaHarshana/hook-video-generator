@@ -7,6 +7,7 @@ const state = {
   previewStopTimer: null,
   pendingOutputAspectRatio: null,
   pendingAutoReframe: null,
+  musicFileDuration: null,
 };
 
 const els = {
@@ -41,6 +42,7 @@ const els = {
   musicVolume: document.querySelector("#musicVolume"),
   sourceVolume: document.querySelector("#sourceVolume"),
   musicEnabled: document.querySelector("#musicEnabled"),
+  useEntireMusic: document.querySelector("#useEntireMusic"),
   beatSyncEnabled: document.querySelector("#beatSyncEnabled"),
   beatSyncIntensity: document.querySelector("#beatSyncIntensity"),
   musicStatus: document.querySelector("#musicStatus"),
@@ -137,8 +139,9 @@ const setBusy = (busy) => {
       ? "Analyze hooks before analyzing music"
       : "";
   els.removeMusicBtn.disabled = busy || !state.project?.music;
-  els.musicStart.disabled = busy || !hasMusicSource;
-  els.musicDuration.disabled = busy || !hasMusicSource;
+  els.useEntireMusic.disabled = busy || !hasMusicSource;
+  els.musicStart.disabled = busy || !hasMusicSource || els.useEntireMusic.checked;
+  els.musicDuration.disabled = busy || !hasMusicSource || els.useEntireMusic.checked;
   els.musicVolume.disabled = busy || !hasMusicSource;
   els.sourceVolume.disabled = busy || !hasMusicSource;
   els.musicEnabled.disabled = busy || !hasMusicSource;
@@ -274,11 +277,40 @@ const musicFromControls = () => {
     fadeSeconds: existingMusic.fadeSeconds ?? 1,
     loop: true,
     enabled: els.musicEnabled.checked,
+    useEntireFile: els.useEntireMusic.checked,
     beatSync: {
       enabled: els.beatSyncEnabled.checked,
       intensity: els.beatSyncIntensity.value || "tight",
     },
   };
+};
+
+const knownMusicDuration = () => {
+  const candidates = [
+    state.musicFileDuration,
+    state.project?.music?.detected?.audioDuration,
+    els.musicPreview.duration,
+    els.analyzedMusicPreview.duration,
+  ];
+  const duration = candidates.find(
+    (value) => Number.isFinite(Number(value)) && Number(value) > 0,
+  );
+
+  return Number.isFinite(Number(duration)) ? Number(duration) : null;
+};
+
+const applyEntireMusicFile = () => {
+  if (!els.useEntireMusic.checked) {
+    return false;
+  }
+
+  els.musicStart.value = "0";
+  const duration = knownMusicDuration();
+  if (duration) {
+    els.musicDuration.value = Number(duration.toFixed(3));
+  }
+
+  return Boolean(duration);
 };
 
 const applyMusicToProject = () => {
@@ -313,6 +345,7 @@ const updateMusicPreview = () => {
     clearVideo(els.analyzedMusicPreview);
     els.musicPreview.dataset.sourcePath = "";
     els.analyzedMusicPreview.dataset.sourcePath = "";
+    state.musicFileDuration = null;
     els.musicStatus.textContent = "No music selected";
     return;
   }
@@ -346,6 +379,9 @@ const renderMusicControls = (music) => {
   els.musicVolume.value = music ? music.volume : 0.35;
   els.sourceVolume.value = music ? music.sourceVolume : 0.75;
   els.musicEnabled.checked = music ? music.enabled !== false : false;
+  els.useEntireMusic.checked = Boolean(music?.useEntireFile);
+  state.musicFileDuration = music?.detected?.audioDuration ?? state.musicFileDuration;
+  applyEntireMusicFile();
   els.beatSyncEnabled.checked = Boolean(music?.beatSync?.enabled);
   els.beatSyncIntensity.value = music?.beatSync?.intensity || "tight";
   updateMusicPreview();
@@ -1099,7 +1135,15 @@ els.chooseMusicBtn.addEventListener("click", async () => {
 
     els.musicPath.value = result.src;
     els.musicUrl.value = "";
-    els.musicDuration.value = Math.max(3, totalHighlightSeconds() || 15);
+    state.musicFileDuration = Number.isFinite(Number(result.duration))
+      ? Number(result.duration)
+      : null;
+    if (els.useEntireMusic.checked && state.musicFileDuration) {
+      els.musicStart.value = "0";
+      els.musicDuration.value = Number(state.musicFileDuration.toFixed(3));
+    } else {
+      els.musicDuration.value = Math.max(3, totalHighlightSeconds() || 15);
+    }
     els.musicEnabled.checked = true;
     applyMusicToProject();
     updateMusicPreview();
@@ -1144,7 +1188,10 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
     setMusicNotice("Starting music analysis", "Sending music analysis job to the backend...", 12);
     const job = await api("/api/analyze-music", {
       method: "POST",
-      body: JSON.stringify({input: musicSource}),
+      body: JSON.stringify({
+        input: musicSource,
+        useEntireFile: els.useEntireMusic.checked,
+      }),
     });
     state.activeJob = job;
     setStatus("Music", "running");
@@ -1176,6 +1223,8 @@ els.removeMusicBtn.addEventListener("click", async () => {
 
   renderMusicControls(undefined);
   setMusicProgress(0, "Music ready");
+  state.musicFileDuration = null;
+  els.useEntireMusic.checked = false;
   els.beatSyncEnabled.checked = false;
   els.beatSyncIntensity.value = "tight";
   setBusy(isActiveJob());
@@ -1229,6 +1278,18 @@ els.musicPreview.addEventListener("play", () => {
   els.analyzedMusicPreview.pause();
 });
 
+els.musicPreview.addEventListener("loadedmetadata", () => {
+  if (Number.isFinite(els.musicPreview.duration) && els.musicPreview.duration > 0) {
+    state.musicFileDuration = els.musicPreview.duration;
+    if (applyEntireMusicFile()) {
+      applyMusicToProject();
+      updateMusicPreview();
+      renderMetrics();
+      setBusy(isActiveJob());
+    }
+  }
+});
+
 els.analyzedMusicPreview.addEventListener("play", () => {
   els.musicPreview.pause();
   const range = analyzedMusicRange();
@@ -1245,6 +1306,17 @@ els.analyzedMusicPreview.addEventListener("play", () => {
 });
 
 els.analyzedMusicPreview.addEventListener("loadedmetadata", () => {
+  if (
+    Number.isFinite(els.analyzedMusicPreview.duration) &&
+    els.analyzedMusicPreview.duration > 0
+  ) {
+    state.musicFileDuration = els.analyzedMusicPreview.duration;
+    if (applyEntireMusicFile()) {
+      applyMusicToProject();
+      renderMetrics();
+      setBusy(isActiveJob());
+    }
+  }
   seekAnalyzedMusicStart();
 });
 
@@ -1260,10 +1332,14 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
   els.musicVolume,
   els.sourceVolume,
   els.musicEnabled,
+  els.useEntireMusic,
   els.beatSyncEnabled,
   els.beatSyncIntensity,
 ].forEach((input) => {
   input.addEventListener("input", () => {
+    if (input === els.useEntireMusic) {
+      applyEntireMusicFile();
+    }
     applyMusicToProject();
     updateMusicPreview();
     if (input === els.musicPath || input === els.musicUrl) {
@@ -1272,6 +1348,7 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
     if (
       input === els.musicStart ||
       input === els.musicDuration ||
+      input === els.useEntireMusic ||
       input === els.beatSyncEnabled ||
       input === els.beatSyncIntensity
     ) {
@@ -1281,6 +1358,9 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
     setBusy(isActiveJob());
   });
   input.addEventListener("change", () => {
+    if (input === els.useEntireMusic) {
+      applyEntireMusicFile();
+    }
     applyMusicToProject();
     updateMusicPreview();
     if (input === els.musicPath || input === els.musicUrl) {
@@ -1289,6 +1369,7 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
     if (
       input === els.musicStart ||
       input === els.musicDuration ||
+      input === els.useEntireMusic ||
       input === els.beatSyncEnabled ||
       input === els.beatSyncIntensity
     ) {
