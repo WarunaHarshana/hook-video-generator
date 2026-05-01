@@ -99,7 +99,16 @@
               <div id="musicProgressFill"></div>
             </div>
           </div>
-          <audio id="musicPreview" controls preload="metadata"></audio>
+          <div class="music-player-grid">
+            <div class="music-player">
+              <label for="musicPreview">Full music file</label>
+              <audio id="musicPreview" controls preload="metadata"></audio>
+            </div>
+            <div class="music-player">
+              <label for="analyzedMusicPreview">Analyzed section</label>
+              <audio id="analyzedMusicPreview" controls preload="metadata"></audio>
+            </div>
+          </div>
           <div class="option-grid music-options">
             <div class="field">
               <label for="musicStart">Music start</label>

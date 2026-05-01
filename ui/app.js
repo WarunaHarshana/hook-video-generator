@@ -35,6 +35,7 @@ const els = {
   analyzeMusicBtn: document.querySelector("#analyzeMusicBtn"),
   removeMusicBtn: document.querySelector("#removeMusicBtn"),
   musicPreview: document.querySelector("#musicPreview"),
+  analyzedMusicPreview: document.querySelector("#analyzedMusicPreview"),
   musicStart: document.querySelector("#musicStart"),
   musicDuration: document.querySelector("#musicDuration"),
   musicVolume: document.querySelector("#musicVolume"),
@@ -309,28 +310,25 @@ const updateMusicPreview = () => {
   const src = getMusicSource();
   if (!src) {
     clearVideo(els.musicPreview);
+    clearVideo(els.analyzedMusicPreview);
     els.musicPreview.dataset.sourcePath = "";
+    els.analyzedMusicPreview.dataset.sourcePath = "";
     els.musicStatus.textContent = "No music selected";
     return;
   }
 
   if (isYoutubeMusicSource(src)) {
     clearVideo(els.musicPreview);
+    clearVideo(els.analyzedMusicPreview);
     els.musicPreview.dataset.sourcePath = "";
+    els.analyzedMusicPreview.dataset.sourcePath = "";
     els.musicStatus.textContent =
       "YouTube links are not direct music files. Choose a local music file instead.";
     return;
   }
 
-  if (els.musicPreview.dataset.sourcePath !== src) {
-    els.musicPreview.dataset.sourcePath = src;
-    setVideoSource(
-      els.musicPreview,
-      isRemoteMusicSource(src)
-        ? src
-        : `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
-    );
-  }
+  setAudioPreviewSource(els.musicPreview, src);
+  setAudioPreviewSource(els.analyzedMusicPreview, src);
   els.musicStatus.textContent = musicSummary(musicFromControls());
 };
 
@@ -451,6 +449,60 @@ const setVideoSource = (video, src) => {
   }
 
   video.src = src;
+};
+
+const setAudioPreviewSource = (audio, src) => {
+  if (audio.dataset.sourcePath === src) {
+    return;
+  }
+
+  audio.dataset.sourcePath = src;
+  setVideoSource(
+    audio,
+    isRemoteMusicSource(src)
+      ? src
+      : `/api/video?path=${encodeURIComponent(src)}&t=${Date.now()}`,
+  );
+};
+
+const analyzedMusicRange = () => {
+  const music = musicFromControls();
+  if (!music?.src) {
+    return null;
+  }
+
+  const start = Math.max(0, Number(music.start) || 0);
+  const duration = Math.max(0.1, Number(music.duration) || 0.1);
+
+  return {
+    start,
+    end: start + duration,
+  };
+};
+
+const seekAnalyzedMusicStart = () => {
+  const range = analyzedMusicRange();
+  if (!range || !els.analyzedMusicPreview.getAttribute("src")) {
+    return;
+  }
+
+  try {
+    els.analyzedMusicPreview.currentTime = range.start;
+  } catch {
+    // Metadata may not be loaded yet. The play handler will seek again.
+  }
+};
+
+const stopAnalyzedMusicAtEnd = () => {
+  const range = analyzedMusicRange();
+  if (!range) {
+    return;
+  }
+
+  if (els.analyzedMusicPreview.currentTime >= range.end) {
+    els.analyzedMusicPreview.pause();
+    seekAnalyzedMusicStart();
+  }
 };
 
 const openFullscreen = async (video) => {
@@ -1173,6 +1225,33 @@ els.autoReframe.addEventListener("change", () => {
   applyOutputFormatToProject();
 });
 
+els.musicPreview.addEventListener("play", () => {
+  els.analyzedMusicPreview.pause();
+});
+
+els.analyzedMusicPreview.addEventListener("play", () => {
+  els.musicPreview.pause();
+  const range = analyzedMusicRange();
+  if (!range) {
+    return;
+  }
+
+  if (
+    els.analyzedMusicPreview.currentTime < range.start ||
+    els.analyzedMusicPreview.currentTime >= range.end
+  ) {
+    seekAnalyzedMusicStart();
+  }
+});
+
+els.analyzedMusicPreview.addEventListener("loadedmetadata", () => {
+  seekAnalyzedMusicStart();
+});
+
+els.analyzedMusicPreview.addEventListener("timeupdate", () => {
+  stopAnalyzedMusicAtEnd();
+});
+
 [
   els.musicPath,
   els.musicUrl,
@@ -1191,10 +1270,12 @@ els.autoReframe.addEventListener("change", () => {
       refreshMusicReadiness();
     }
     if (
+      input === els.musicStart ||
       input === els.musicDuration ||
       input === els.beatSyncEnabled ||
       input === els.beatSyncIntensity
     ) {
+      seekAnalyzedMusicStart();
       renderMetrics();
     }
     setBusy(isActiveJob());
@@ -1206,10 +1287,12 @@ els.autoReframe.addEventListener("change", () => {
       refreshMusicReadiness();
     }
     if (
+      input === els.musicStart ||
       input === els.musicDuration ||
       input === els.beatSyncEnabled ||
       input === els.beatSyncIntensity
     ) {
+      seekAnalyzedMusicStart();
       renderMetrics();
     }
     setBusy(isActiveJob());

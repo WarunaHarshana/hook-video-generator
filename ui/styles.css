@@ -214,6 +214,18 @@ select:focus {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
 }
 
+.music-player-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.music-player {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
 .beat-sync-controls {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(118px, 0.8fr);
