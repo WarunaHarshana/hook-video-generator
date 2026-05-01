@@ -20,6 +20,7 @@ type ProjectJson = {
   sourceHeight: number;
   outputAspectRatio: "source";
   reframeMode: "none";
+  effectPreset: "clean";
   duration: number;
   highlights: HighlightSegment[];
 };
@@ -830,6 +831,7 @@ const main = async () => {
     sourceHeight: metadata.height,
     outputAspectRatio: "source",
     reframeMode: "none",
+    effectPreset: "clean",
     duration: metadata.duration,
     highlights,
   };

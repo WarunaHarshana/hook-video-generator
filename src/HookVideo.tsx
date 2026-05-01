@@ -19,6 +19,7 @@ export type HighlightSegment = {
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
 export type BeatSyncIntensity = "loose" | "tight" | "fast";
+export type EffectPreset = "clean" | "beat-punch" | "flash-cuts" | "impact-shake";
 
 export type BeatSyncSettings = {
   enabled: boolean;
@@ -48,6 +49,7 @@ export type HookVideoInputProps = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  effectPreset?: EffectPreset;
   music?: MusicSettings;
   highlights: HighlightSegment[];
   title?: string;
@@ -253,17 +255,53 @@ const fadeInOut = (frame: number, durationInFrames: number, maxFade = 8) => {
   return Math.min(fadeIn, fadeOut);
 };
 
+const cutPulse = (frame: number, durationInFrames: number, preset: EffectPreset) => {
+  if (preset === "clean") {
+    return 0;
+  }
+
+  const maxFrames = preset === "impact-shake" ? 9 : 7;
+  const pulseFrames = Math.max(
+    1,
+    Math.min(maxFrames, Math.max(1, Math.floor(durationInFrames / 3))),
+  );
+
+  return interpolate(frame, [0, pulseFrames], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+};
+
+const flashOpacity = (pulse: number, preset: EffectPreset) => {
+  if (preset === "flash-cuts") {
+    return pulse * 0.26;
+  }
+
+  if (preset === "beat-punch") {
+    return pulse * 0.14;
+  }
+
+  if (preset === "impact-shake") {
+    return pulse * 0.1;
+  }
+
+  return 0;
+};
+
 const SourceClip: React.FC<{
   clip: ClipWithTiming;
   src: string;
   index: number;
   reframeMode: ReframeMode;
   sourceVolume: number;
-}> = ({clip, src, index, reframeMode, sourceVolume}) => {
+  effectPreset: EffectPreset;
+}> = ({clip, src, index, reframeMode, sourceVolume, effectPreset}) => {
   const frame = useCurrentFrame();
   const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveMediaSrc(src);
   const visualOpacity = clipFade(frame, clip.durationInFrames);
+  const pulse = cutPulse(frame, clip.durationInFrames, effectPreset);
   const trimBefore = secondsToFrames(clip.start, fps);
   const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
   const autoReframe = reframeMode === "auto";
@@ -286,6 +324,16 @@ const SourceClip: React.FC<{
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic),
   });
+  const effectScale =
+    autoReframe && effectPreset === "beat-punch" ? pulse * 0.035 : 0;
+  const shakeAmount =
+    autoReframe && effectPreset === "impact-shake"
+      ? Math.sin(frame * 2.4 + index) * pulse * Math.max(3, width * 0.006)
+      : 0;
+  const transform = autoReframe
+    ? `translate3d(${shakeAmount}px, 0, 0) scale(${scale + effectScale})`
+    : undefined;
+  const overlayOpacity = flashOpacity(pulse, effectPreset);
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>
@@ -304,7 +352,7 @@ const SourceClip: React.FC<{
               : `50% ${clamp(pan, 35, 65)}%`
             : "50% 50%",
           opacity: visualOpacity,
-          transform: autoReframe ? `scale(${scale})` : undefined,
+          transform,
         }}
       />
       <AbsoluteFill
@@ -314,6 +362,15 @@ const SourceClip: React.FC<{
           pointerEvents: "none",
         }}
       />
+      {overlayOpacity > 0 ? (
+        <AbsoluteFill
+          style={{
+            backgroundColor: "#fff",
+            opacity: overlayOpacity,
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
     </AbsoluteFill>
   );
 };
@@ -434,6 +491,7 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   title = "",
   outputAspectRatio = "source",
   reframeMode,
+  effectPreset = "clean",
   music,
 }) => {
   const {fps, durationInFrames} = useVideoConfig();
@@ -477,6 +535,7 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
             index={index}
             reframeMode={resolvedReframeMode}
             sourceVolume={sourceVolume}
+            effectPreset={effectPreset}
           />
         </Sequence>
       ))}

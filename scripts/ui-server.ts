@@ -20,6 +20,7 @@ type HighlightSegment = {
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
+type EffectPreset = "clean" | "beat-punch" | "flash-cuts" | "impact-shake";
 
 type BeatSyncSettings = {
   enabled: boolean;
@@ -60,6 +61,7 @@ type ProjectJson = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  effectPreset?: EffectPreset;
   music?: MusicSettings;
   duration?: number;
   title?: string;
@@ -185,6 +187,12 @@ const outputAspectRatios = new Set<OutputAspectRatio>([
 ]);
 
 const reframeModes = new Set<ReframeMode>(["none", "auto"]);
+const effectPresets = new Set<EffectPreset>([
+  "clean",
+  "beat-punch",
+  "flash-cuts",
+  "impact-shake",
+]);
 const beatSyncIntensities = new Set<BeatSyncIntensity>([
   "loose",
   "tight",
@@ -201,6 +209,12 @@ const normalizeReframeMode = (value: unknown): ReframeMode => {
   return typeof value === "string" && reframeModes.has(value as ReframeMode)
     ? (value as ReframeMode)
     : "none";
+};
+
+const normalizeEffectPreset = (value: unknown): EffectPreset => {
+  return typeof value === "string" && effectPresets.has(value as EffectPreset)
+    ? (value as EffectPreset)
+    : "clean";
 };
 
 const normalizeBeatSyncIntensity = (value: unknown): BeatSyncIntensity => {
@@ -851,6 +865,7 @@ const loadProject = async () => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
   };
 };
@@ -892,6 +907,7 @@ const validateProject = (input: ProjectJson): ProjectJson => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
     duration: normalizeNumber(input.duration, 0) || undefined,
     title: input.title?.trim() || undefined,

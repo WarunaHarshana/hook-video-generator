@@ -29,6 +29,7 @@ const els = {
   outputPath: document.querySelector("#outputPath"),
   chooseOutputBtn: document.querySelector("#chooseOutputBtn"),
   outputAspectRatio: document.querySelector("#outputAspectRatio"),
+  effectPreset: document.querySelector("#effectPreset"),
   autoReframe: document.querySelector("#autoReframe"),
   musicPath: document.querySelector("#musicPath"),
   musicUrl: document.querySelector("#musicUrl"),
@@ -129,6 +130,7 @@ const setBusy = (busy) => {
   els.chooseFileBtn.disabled = busy;
   els.chooseOutputBtn.disabled = busy;
   els.outputAspectRatio.disabled = busy;
+  els.effectPreset.disabled = busy;
   els.autoReframe.disabled = busy || els.outputAspectRatio.value === "source";
   els.chooseMusicBtn.disabled = busy;
   const hasMusicSource = Boolean(getMusicSource());
@@ -237,6 +239,7 @@ const applyOutputFormatToProject = () => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" || !els.autoReframe.checked ? "none" : "auto",
+    effectPreset: els.effectPreset.value || "clean",
   };
 };
 
@@ -787,6 +790,7 @@ const renderProject = (serverState = {}) => {
     els.sourcePath.value = project.src;
     els.titleText.value = project.title || "";
     els.outputAspectRatio.value = project.outputAspectRatio || "source";
+    els.effectPreset.value = project.effectPreset || "clean";
     els.autoReframe.checked =
       (project.outputAspectRatio || "source") !== "source" &&
       project.reframeMode !== "none";
@@ -800,6 +804,7 @@ const renderProject = (serverState = {}) => {
     els.titleText.value = "";
     els.uploadStatus.textContent = "";
     els.outputAspectRatio.value = "source";
+    els.effectPreset.value = "clean";
     els.autoReframe.checked = false;
     syncOutputFormatControls();
     renderMusicControls(undefined);
@@ -1270,6 +1275,10 @@ els.outputAspectRatio.addEventListener("change", () => {
   updateVideoSources();
 });
 
+els.effectPreset.addEventListener("change", () => {
+  applyOutputFormatToProject();
+});
+
 els.autoReframe.addEventListener("change", () => {
   applyOutputFormatToProject();
 });
@@ -1433,6 +1442,7 @@ els.addHighlightBtn.addEventListener("click", () => {
         outputAspectRatio === "source" || !els.autoReframe.checked
           ? "none"
           : "auto",
+      effectPreset: els.effectPreset.value || "clean",
       music: musicFromControls(),
       title: els.titleText.value.trim() || undefined,
       highlights: [],
