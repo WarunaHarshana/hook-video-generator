@@ -28,6 +28,7 @@ A full PDF guide with screenshots is included:
 - Cut highlights to music beats.
 - Control background music volume and original source audio volume.
 - Choose visual effects: clean cuts, auto reactive, smooth slow, fast kinetic, slow-fast mix, beat punch, flash cuts, or impact shake.
+- Add an HDR-style color boost to SDR video with natural or vivid modes.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
 - Auto reframe when exporting to a different aspect ratio.
 - Choose CPU, GPU, or automatic render mode.
@@ -90,6 +91,7 @@ If port `3210` is already in use, the app will show the next available URL in th
 - `4:5 portrait`: good for feed-style vertical posts.
 - `16:9 landscape`: good for YouTube-style landscape videos.
 - `Auto reframe`: reframes video when the final aspect ratio changes.
+- `Color boost`: adds an HDR-style look to normal SDR video. This is a visual grade, not true HDR metadata.
 
 ## Render Options
 

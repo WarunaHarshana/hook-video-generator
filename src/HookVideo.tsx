@@ -18,6 +18,7 @@ export type HighlightSegment = {
 
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
+export type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
 export type BeatSyncIntensity = "loose" | "tight" | "fast";
 export type EffectPreset =
   | "clean"
@@ -63,6 +64,7 @@ export type HookVideoInputProps = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  colorEnhancement?: ColorEnhancement;
   effectPreset?: EffectPreset;
   music?: MusicSettings;
   highlights: HighlightSegment[];
@@ -112,6 +114,18 @@ const resolveMediaSrc = (src: string) => {
   }
 
   return staticFile(src);
+};
+
+const colorEnhancementFilter = (colorEnhancement: ColorEnhancement) => {
+  if (colorEnhancement === "hdr-vivid") {
+    return "brightness(1.05) contrast(1.2) saturate(1.32)";
+  }
+
+  if (colorEnhancement === "hdr-natural") {
+    return "brightness(1.03) contrast(1.12) saturate(1.16)";
+  }
+
+  return "none";
 };
 
 const beatSyncConfig = (intensity: BeatSyncIntensity) => {
@@ -494,7 +508,16 @@ const SourceClip: React.FC<{
   reframeMode: ReframeMode;
   sourceVolume: number;
   effectPreset: EffectPreset;
-}> = ({clip, src, index, reframeMode, sourceVolume, effectPreset}) => {
+  colorEnhancement: ColorEnhancement;
+}> = ({
+  clip,
+  src,
+  index,
+  reframeMode,
+  sourceVolume,
+  effectPreset,
+  colorEnhancement,
+}) => {
   const frame = useCurrentFrame();
   const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveMediaSrc(src);
@@ -611,6 +634,7 @@ const SourceClip: React.FC<{
             : "50% 50%",
           opacity: visualOpacity,
           transform,
+          filter: colorEnhancementFilter(colorEnhancement),
         }}
       />
       <AbsoluteFill
@@ -749,6 +773,7 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   title = "",
   outputAspectRatio = "source",
   reframeMode,
+  colorEnhancement = "off",
   effectPreset = "clean",
   music,
 }) => {
@@ -794,6 +819,7 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
             reframeMode={resolvedReframeMode}
             sourceVolume={sourceVolume}
             effectPreset={effectPreset}
+            colorEnhancement={colorEnhancement}
           />
         </Sequence>
       ))}

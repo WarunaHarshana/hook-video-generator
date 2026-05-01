@@ -19,6 +19,7 @@ type HighlightSegment = {
 
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
+type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
 type EffectPreset =
   | "clean"
@@ -77,6 +78,7 @@ type ProjectJson = {
   sourceHeight?: number;
   outputAspectRatio?: OutputAspectRatio;
   reframeMode?: ReframeMode;
+  colorEnhancement?: ColorEnhancement;
   effectPreset?: EffectPreset;
   music?: MusicSettings;
   duration?: number;
@@ -203,6 +205,11 @@ const outputAspectRatios = new Set<OutputAspectRatio>([
 ]);
 
 const reframeModes = new Set<ReframeMode>(["none", "auto"]);
+const colorEnhancements = new Set<ColorEnhancement>([
+  "off",
+  "hdr-natural",
+  "hdr-vivid",
+]);
 const effectPresets = new Set<EffectPreset>([
   "clean",
   "auto",
@@ -229,6 +236,12 @@ const normalizeReframeMode = (value: unknown): ReframeMode => {
   return typeof value === "string" && reframeModes.has(value as ReframeMode)
     ? (value as ReframeMode)
     : "none";
+};
+
+const normalizeColorEnhancement = (value: unknown): ColorEnhancement => {
+  return typeof value === "string" && colorEnhancements.has(value as ColorEnhancement)
+    ? (value as ColorEnhancement)
+    : "off";
 };
 
 const normalizeEffectPreset = (value: unknown): EffectPreset => {
@@ -894,6 +907,7 @@ const loadProject = async () => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    colorEnhancement: normalizeColorEnhancement(input.colorEnhancement),
     effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
   };
@@ -936,6 +950,7 @@ const validateProject = (input: ProjectJson): ProjectJson => {
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
+    colorEnhancement: normalizeColorEnhancement(input.colorEnhancement),
     effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
     duration: normalizeNumber(input.duration, 0) || undefined,
