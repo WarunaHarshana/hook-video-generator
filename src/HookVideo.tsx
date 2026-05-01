@@ -327,33 +327,6 @@ const buildTimeline = (
     .filter((clip) => clip.durationInFrames > 0);
 };
 
-const clipFade = (frame: number, durationInFrames: number) => {
-  const fadeFrames = Math.max(
-    1,
-    Math.min(
-      Math.max(1, Math.floor(durationInFrames / 2)),
-      clamp(Math.round(durationInFrames * 0.16), 3, 10),
-    ),
-  );
-  const fadeIn = interpolate(frame, [0, fadeFrames], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic),
-  });
-  const fadeOut = interpolate(
-    frame,
-    [durationInFrames - fadeFrames, durationInFrames],
-    [1, 0],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-      easing: Easing.in(Easing.cubic),
-    },
-  );
-
-  return Math.min(fadeIn, fadeOut);
-};
-
 const fadeInOut = (frame: number, durationInFrames: number, maxFade = 8) => {
   const fadeFrames = Math.max(
     1,
@@ -390,7 +363,7 @@ const resolveEffectPreset = (
       return "fast-kinetic";
     }
 
-    return "beat-punch";
+    return "smooth-slow";
   }
 
   if (preset !== "auto") {
@@ -437,25 +410,66 @@ const cutPulse = (
 
   const presetStrength =
     preset === "smooth-slow"
-      ? 0.34
+      ? 0.22
       : preset === "fast-kinetic"
-        ? 0.82
+        ? 0.58
         : 1;
 
   return pulse * clamp(effectStrength, 0.18, 1) * presetStrength;
+};
+
+const clipVisualOpacity = (
+  frame: number,
+  durationInFrames: number,
+  requestedPreset: EffectPreset,
+  resolvedPreset: ResolvedEffectPreset,
+) => {
+  if (requestedPreset === "slow-fast-mix" || resolvedPreset === "fast-kinetic") {
+    return 1;
+  }
+
+  const fadeFrames =
+    resolvedPreset === "smooth-slow"
+      ? 4
+      : resolvedPreset === "clean"
+        ? 2
+        : 3;
+  const edge = Math.min(fadeFrames, Math.floor(durationInFrames / 3));
+
+  if (edge <= 0) {
+    return 1;
+  }
+
+  const fadeIn = interpolate(frame, [0, edge], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+  const fadeOut = interpolate(frame, [durationInFrames - edge, durationInFrames], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.in(Easing.cubic),
+  });
+
+  return Math.min(fadeIn, fadeOut);
 };
 
 const flashOpacity = (
   pulse: number,
   preset: ResolvedEffectPreset,
   effectStrength: number,
+  requestedPreset: EffectPreset,
 ) => {
+  if (requestedPreset === "slow-fast-mix") {
+    return 0;
+  }
+
   if (preset === "smooth-slow") {
-    return pulse * 0.025;
+    return 0;
   }
 
   if (preset === "fast-kinetic") {
-    return pulse * (0.035 + effectStrength * 0.04);
+    return pulse * (0.008 + effectStrength * 0.012);
   }
 
   if (preset === "flash-cuts") {
@@ -484,11 +498,16 @@ const SourceClip: React.FC<{
   const frame = useCurrentFrame();
   const {fps, width, height} = useVideoConfig();
   const videoSrc = resolveMediaSrc(src);
-  const visualOpacity = clipFade(frame, clip.durationInFrames);
   const resolvedPreset = resolveEffectPreset(
     effectPreset,
     clip.effectStrength,
     clip.effectPace,
+  );
+  const visualOpacity = clipVisualOpacity(
+    frame,
+    clip.durationInFrames,
+    effectPreset,
+    resolvedPreset,
   );
   const pulse = cutPulse(
     frame,
@@ -567,7 +586,12 @@ const SourceClip: React.FC<{
   const transform = autoReframe
     ? `translate3d(${shakeAmount}px, 0, 0) scale(${scale + effectScale})`
     : undefined;
-  const overlayOpacity = flashOpacity(pulse, resolvedPreset, clip.effectStrength);
+  const overlayOpacity = flashOpacity(
+    pulse,
+    resolvedPreset,
+    clip.effectStrength,
+    effectPreset,
+  );
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>
