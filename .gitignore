@@ -15,3 +15,5 @@ project.json
 .ui-server.log
 .ui-server.err.log
 uploads/
+docs/assets/*-raw.png
+docs/assets/ui-overview.png

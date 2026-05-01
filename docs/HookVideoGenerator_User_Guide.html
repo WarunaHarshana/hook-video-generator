@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hook Video Generator User Guide</title>
+    <style>
+      :root {
+        --ink: #17202a;
+        --muted: #65717f;
+        --line: #d9e0e7;
+        --panel: #f8fafb;
+        --accent: #166f62;
+        --blue: #245f9f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.55;
+        background: #ffffff;
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 42px 46px 64px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.15;
+      }
+
+      h1 {
+        font-size: 36px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin-top: 36px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        font-size: 24px;
+      }
+
+      h3 {
+        margin-top: 24px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 9px 0;
+      }
+
+      ul,
+      ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 5px 0;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 12px;
+        border-collapse: collapse;
+        page-break-inside: avoid;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--panel);
+        color: #3f4d5a;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #edf2f6;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+      }
+
+      .cover {
+        padding: 30px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: linear-gradient(135deg, #f8fbfc, #eef4f7);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .subtitle {
+        max-width: 720px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .meta div,
+      .note,
+      .tip {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 12px;
+      }
+
+      .meta span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .meta strong {
+        display: block;
+        margin-top: 3px;
+        font-size: 16px;
+      }
+
+      .figure {
+        margin: 18px 0 8px;
+        page-break-inside: avoid;
+      }
+
+      .figure img {
+        display: block;
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+
+      .caption {
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .flow div {
+        min-height: 82px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 10px;
+      }
+
+      .flow strong {
+        display: block;
+        color: var(--accent);
+      }
+
+      .note {
+        border-left: 4px solid var(--accent);
+      }
+
+      .tip {
+        border-left: 4px solid var(--blue);
+      }
+
+      .page-break {
+        page-break-before: always;
+      }
+
+      @page {
+        size: A4;
+        margin: 14mm;
+      }
+
+      @media print {
+        main {
+          max-width: none;
+          padding: 0;
+        }
+
+        h2 {
+          page-break-after: avoid;
+        }
+
+        .cover {
+          page-break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="cover">
+        <p class="eyebrow">User guide</p>
+        <h1>Hook Video Generator</h1>
+        <p class="subtitle">
+          A local tool for turning one source video into a short hook
+          compilation while preserving source quality, optionally matching cuts
+          to music beats, and exporting a final hook video.
+        </p>
+        <div class="meta">
+          <div>
+            <span>Input</span>
+            <strong>One source video</strong>
+          </div>
+          <div>
+            <span>Output</span>
+            <strong>Rendered hook MP4</strong>
+          </div>
+          <div>
+            <span>Runs</span>
+            <strong>Locally on your machine</strong>
+          </div>
+        </div>
+      </section>
+
+      <h2>What This App Does</h2>
+      <p>
+        Hook Video Generator analyzes a source video, chooses high-energy
+        highlight candidates, lets you edit those moments, and renders a short
+        compilation. It can keep the original source aspect ratio or create a
+        new output shape with auto reframe.
+      </p>
+      <p>
+        The app can also analyze a local music file, find a strong section,
+        detect beats, auto-select a beat style, and cut highlights to that
+        rhythm.
+      </p>
+
+      <div class="figure">
+        <img src="assets/ui-overview-clean.png" alt="Main Hook Video Generator interface" />
+        <div class="caption">
+          Main workspace with input controls, previews, highlight rows, music
+          controls, and export settings.
+        </div>
+      </div>
+
+      <h2>Recommended Workflow</h2>
+      <div class="flow">
+        <div>
+          <strong>1. Choose</strong>
+          Select the source video file.
+        </div>
+        <div>
+          <strong>2. Analyze</strong>
+          Generate hook highlight candidates.
+        </div>
+        <div>
+          <strong>3. Review</strong>
+          Adjust starts, durations, and previews.
+        </div>
+        <div>
+          <strong>4. Music</strong>
+          Optional: analyze music and enable beat cuts.
+        </div>
+        <div>
+          <strong>5. Render</strong>
+          Choose output settings and render the final hook.
+        </div>
+      </div>
+
+      <h2>Input And Analysis Controls</h2>
+      <p>
+        The Input section is where you select the source video and control how
+        highlight candidates are found.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Control</th>
+            <th>What it does</th>
+            <th>When to change it</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Source video path</td>
+            <td>Shows the source video used for analysis and rendering.</td>
+            <td>Change this whenever you want to work on a different video.</td>
+          </tr>
+          <tr>
+            <td>Choose</td>
+            <td>Opens the native file picker and uses the original file path.</td>
+            <td>Use this instead of typing paths by hand.</td>
+          </tr>
+          <tr>
+            <td>Clip seconds</td>
+            <td>Sets the default length of each selected hook segment.</td>
+            <td>Use 2-4 seconds for fast hooks, 5-8 seconds for slower pacing.</td>
+          </tr>
+          <tr>
+            <td>Max clips</td>
+            <td>Limits how many highlight candidates are created.</td>
+            <td>Increase it when you want more choices before rendering.</td>
+          </tr>
+          <tr>
+            <td>Scene threshold</td>
+            <td>Controls how sensitive scene-change detection is.</td>
+            <td>Lower values find more cuts; higher values find fewer cuts.</td>
+          </tr>
+          <tr>
+            <td>Analyze Hooks</td>
+            <td>Runs video analysis and builds the highlight list.</td>
+            <td>Click after choosing a source video or changing analysis settings.</td>
+          </tr>
+          <tr>
+            <td>Cancel</td>
+            <td>Stops the active analyze, music analyze, or render job.</td>
+            <td>Use it when a long video is taking too long.</td>
+          </tr>
+          <tr>
+            <td>Metrics</td>
+            <td>Shows resolution, FPS, number of highlights, and hook duration.</td>
+            <td>Use this to confirm the project is using the expected source settings.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Preview Area</h2>
+      <p>
+        The Source preview shows the selected original video. The Hook preview
+        shows the rendered output after a final render exists. Both previews
+        have a Full button for fullscreen viewing.
+      </p>
+      <div class="note">
+        The source preview is not the final hook. It is only there to confirm
+        the input file and inspect source content. The hook preview updates
+        after rendering.
+      </div>
+
+      <h2>Highlight Editor</h2>
+      <p>
+        The highlight table is the editable compilation timeline. Each row is a
+        clip pulled from the original source video.
+      </p>
+      <div class="figure">
+        <img src="assets/ui-highlights-clean.png" alt="Highlight editor table" />
+        <div class="caption">
+          Highlight rows include preview thumbnails, start time, duration, and
+          removal controls.
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Control</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Preview</td>
+            <td>Shows a small frame from the clip so you can judge the moment quickly.</td>
+          </tr>
+          <tr>
+            <td>Start</td>
+            <td>Seconds into the source video where this highlight begins.</td>
+          </tr>
+          <tr>
+            <td>Duration</td>
+            <td>How many seconds this highlight lasts in the final hook.</td>
+          </tr>
+          <tr>
+            <td>Add</td>
+            <td>Adds a manual highlight row.</td>
+          </tr>
+          <tr>
+            <td>Remove</td>
+            <td>Deletes that highlight from the compilation list.</td>
+          </tr>
+          <tr>
+            <td>Save</td>
+            <td>Saves your edited project settings and highlight list.</td>
+          </tr>
+          <tr>
+            <td>Render Final Hook</td>
+            <td>Starts final rendering using the current highlight list and export settings.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Music Controls</h2>
+      <p>
+        Music is optional. If you add it, the app can analyze the music file,
+        choose a strong section, detect beats, and help cut highlights on rhythm.
+      </p>
+      <div class="figure">
+        <img src="assets/ui-music-clean.png" alt="Music controls" />
+        <div class="caption">
+          Music controls manage the music source, analyzed section, volume, and
+          beat-sync settings.
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Control</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Music file</td>
+            <td>Selects a local audio file such as MP3, WAV, M4A, or AAC.</td>
+          </tr>
+          <tr>
+            <td>Music URL</td>
+            <td>Accepts a direct audio/video file URL. YouTube watch links are not direct files.</td>
+          </tr>
+          <tr>
+            <td>Analyze Music</td>
+            <td>Measures the music, finds a strong section, detects beats, and suggests beat style.</td>
+          </tr>
+          <tr>
+            <td>Full music file player</td>
+            <td>Lets you listen to the entire selected music file.</td>
+          </tr>
+          <tr>
+            <td>Analyzed section player</td>
+            <td>Lets you listen only to the chosen music segment.</td>
+          </tr>
+          <tr>
+            <td>Music start</td>
+            <td>Start time of the music segment used in the final render.</td>
+          </tr>
+          <tr>
+            <td>Music seconds</td>
+            <td>Length of the music segment used in the final render.</td>
+          </tr>
+          <tr>
+            <td>Music volume</td>
+            <td>Volume of the background music in the final hook.</td>
+          </tr>
+          <tr>
+            <td>Source volume</td>
+            <td>Volume of the original source-video audio in the final hook.</td>
+          </tr>
+          <tr>
+            <td>Use music in final render</td>
+            <td>Turns background music on or off for the render.</td>
+          </tr>
+          <tr>
+            <td>Use entire music file</td>
+            <td>Uses the whole selected music file instead of an analyzed segment.</td>
+          </tr>
+          <tr>
+            <td>Cut highlights to music beats</td>
+            <td>Changes clip durations so highlight cuts land on detected beats.</td>
+          </tr>
+          <tr>
+            <td>Beat style</td>
+            <td>
+              Controls how aggressively highlights follow the beat. The app
+              auto-selects this after music analysis, but you can still adjust it.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Beat Style Meaning</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Style</th>
+            <th>Best for</th>
+            <th>Behavior</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Loose</td>
+            <td>Slower music or dialogue-heavy edits.</td>
+            <td>Longer cuts with fewer beat jumps.</td>
+          </tr>
+          <tr>
+            <td>Tight</td>
+            <td>General short-form hooks.</td>
+            <td>Balanced cut timing that follows the rhythm without becoming too frantic.</td>
+          </tr>
+          <tr>
+            <td>Fast</td>
+            <td>Dense beats, energetic edits, rapid hooks.</td>
+            <td>Shorter cuts and faster pacing.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Render And Export Settings</h2>
+      <p>
+        The Render section controls the final video shape, effects, output path,
+        render engine, and cleanup behavior.
+      </p>
+      <div class="figure">
+        <img src="assets/ui-render-clean.png" alt="Render and export controls" />
+        <div class="caption">
+          Export settings choose final aspect ratio, effects, render mode, and
+          output location.
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Control</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Final aspect</td>
+            <td>
+              Chooses the output format. Source original keeps the source
+              resolution and aspect ratio. Other options create vertical,
+              square, portrait, or landscape exports.
+            </td>
+          </tr>
+          <tr>
+            <td>Effects</td>
+            <td>
+              Selects visual cut effects. Auto reactive changes intensity based
+              on detected music beat strength.
+            </td>
+          </tr>
+          <tr>
+            <td>Auto reframe when aspect changes</td>
+            <td>
+              When final aspect differs from the source, the app can reframe the
+              source automatically so the important region stays visible.
+            </td>
+          </tr>
+          <tr>
+            <td>Output path</td>
+            <td>Where the final <code>hook.mp4</code> will be saved.</td>
+          </tr>
+          <tr>
+            <td>Render engine</td>
+            <td>
+              Auto GPU lets the app use GPU acceleration when possible. Force
+              GPU requests GPU rendering. CPU only avoids GPU rendering.
+            </td>
+          </tr>
+          <tr>
+            <td>GL</td>
+            <td>
+              Chooses the graphics backend for Remotion rendering. Use
+              <code>angle</code> first; try <code>vulkan</code>,
+              <code>egl</code>, or <code>swiftshader</code> if rendering fails.
+            </td>
+          </tr>
+          <tr>
+            <td>Concurrency</td>
+            <td>How many render workers Remotion can use at once.</td>
+          </tr>
+          <tr>
+            <td>Timeout min</td>
+            <td>Maximum wait time for slow frame rendering before failing.</td>
+          </tr>
+          <tr>
+            <td>Clear workspace after render</td>
+            <td>
+              Clears app-created workspace files after rendering. The final
+              output video is kept.
+            </td>
+          </tr>
+          <tr>
+            <td>Clear workspace</td>
+            <td>
+              Clears current source/project/highlight workspace data that the
+              app tracks in its manifest.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Effects</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Effect</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Clean cuts</td>
+            <td>Simple clip stitching with fades and the progress bar.</td>
+          </tr>
+          <tr>
+            <td>Auto reactive</td>
+            <td>
+              Uses analyzed beat strength to choose lighter or stronger effects
+              at each cut.
+            </td>
+          </tr>
+          <tr>
+            <td>Beat punch</td>
+            <td>Adds a quick punch/flash at cut points.</td>
+          </tr>
+          <tr>
+            <td>Flash cuts</td>
+            <td>Adds a brighter flash on clip changes.</td>
+          </tr>
+          <tr>
+            <td>Impact shake</td>
+            <td>Adds stronger movement on impact cuts when auto reframe is active.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tip">
+        Source original output keeps the source aspect ratio and avoids crop,
+        stretch, or letterbox changes. Aspect conversion settings are only for
+        when you intentionally want a new final shape.
+      </div>
+
+      <h2>Troubleshooting</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Issue</th>
+            <th>What to try</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Music analysis button is disabled</td>
+            <td>Choose a music file and analyze hooks first so the app knows the hook duration.</td>
+          </tr>
+          <tr>
+            <td>YouTube link does not analyze</td>
+            <td>Use a local music file or a direct audio/video file URL.</td>
+          </tr>
+          <tr>
+            <td>Render fails with graphics errors</td>
+            <td>Try CPU only or switch GL to <code>swiftshader</code>.</td>
+          </tr>
+          <tr>
+            <td>Render is slow</td>
+            <td>Use Auto GPU or Force GPU, lower concurrency if the machine is overloaded, or increase timeout.</td>
+          </tr>
+          <tr>
+            <td>Highlights feel too fast or too slow</td>
+            <td>Change Clip seconds, edit row durations, or adjust Beat style.</td>
+          </tr>
+          <tr>
+            <td>Final hook does not update</td>
+            <td>Click Save after editing highlights, then Render Final Hook again.</td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>
