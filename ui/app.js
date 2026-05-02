@@ -676,15 +676,21 @@ const updateVideoSources = (serverState = {}) => {
       serverState.outputExists ||
       state.activeJob?.result?.outputExists);
   const outputPath = showPreview ? previewPath : finalOutputPath;
+  const displayWidth = showPreview
+    ? Number(serverState.previewWidth || state.activeJob?.result?.previewWidth || state.project?.width)
+    : Number(state.project?.width);
+  const displayHeight = showPreview
+    ? Number(serverState.previewHeight || state.activeJob?.result?.previewHeight || state.project?.height)
+    : Number(state.project?.height);
 
   if (shouldShowOutput && outputPath) {
     setVideoSource(els.outputVideo, `/api/video?path=${encodeURIComponent(
       outputPath,
     )}&t=${Date.now()}`);
     els.outputMeta.textContent = showPreview
-      ? `Preview ${state.project.width}x${state.project.height}`
-      : `${state.project.width}x${state.project.height}`;
-    els.outputVideo.style.aspectRatio = `${state.project.width} / ${state.project.height}`;
+      ? `Fast preview ${displayWidth}x${displayHeight}`
+      : `${displayWidth}x${displayHeight}`;
+    els.outputVideo.style.aspectRatio = `${displayWidth} / ${displayHeight}`;
   } else {
     clearVideo(els.outputVideo);
     els.outputMeta.textContent = "-";
@@ -886,7 +892,8 @@ const startPreview = async () => {
     method: "POST",
     body: JSON.stringify(state.project),
   });
-  els.processNote.textContent = "Generating hook preview with current effects and music...";
+  els.processNote.textContent =
+    "Generating fast preview with current effects and music...";
   const job = await api("/api/preview", {
     method: "POST",
     body: JSON.stringify({
@@ -982,7 +989,7 @@ const applyJobUpdate = async (job, options = {}) => {
 
   if (job.kind === "preview") {
     state.hookVideoSource = "preview";
-    els.processNote.textContent = "Preview ready in the Hook player";
+    els.processNote.textContent = "Fast preview ready in the Hook player";
     updateVideoSources({
       ...data,
       previewExists: job.result?.previewExists ?? data.previewExists,

@@ -69,6 +69,35 @@ const readRenderMode = () => {
   return value as RenderMode;
 };
 
+const evenDimension = (value: number) => {
+  return Math.max(2, Math.round(value / 2) * 2);
+};
+
+const scaleProjectToMaxEdge = (
+  project: ProjectJson,
+  maxEdge: number | undefined,
+): ProjectJson => {
+  if (!maxEdge) {
+    return project;
+  }
+
+  const width = Number(project.width);
+  const height = Number(project.height);
+  const currentMaxEdge = Math.max(width, height);
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || currentMaxEdge <= maxEdge) {
+    return project;
+  }
+
+  const scale = maxEdge / currentMaxEdge;
+
+  return {
+    ...project,
+    width: evenDimension(width * scale),
+    height: evenDimension(height * scale),
+  };
+};
+
 const isRemoteSrc = (src: string) => {
   return /^(https?:|data:|blob:)/i.test(src);
 };
@@ -230,7 +259,10 @@ const serveLocalMedia = async (
 
 const loadProject = async (projectPath: string): Promise<LoadedProject> => {
   const raw = await readFile(projectPath, "utf8");
-  const parsed = JSON.parse(raw) as ProjectJson;
+  const parsed = scaleProjectToMaxEdge(
+    JSON.parse(raw) as ProjectJson,
+    readNumberFlag("--max-edge"),
+  );
 
   if (!parsed.src) {
     throw new Error("project.json is missing src.");
@@ -305,6 +337,7 @@ const main = async () => {
   const concurrency = readNumberFlag("--concurrency");
   const renderMode = readRenderMode();
   const timeoutInMilliseconds = readTimeoutInMilliseconds();
+  const maxEdge = readNumberFlag("--max-edge");
 
   if (gl && !allowedGl.has(gl)) {
     throw new Error("--gl must be one of: angle, vulkan, egl, swiftshader.");
@@ -320,7 +353,9 @@ const main = async () => {
         renderSettings.hardwareAcceleration
       }; GL: ${
         renderSettings.chromiumGl ?? "default"
-      }; timeout: ${Math.round(timeoutInMilliseconds / 1000)}s\n`,
+      }; timeout: ${Math.round(timeoutInMilliseconds / 1000)}s${
+        maxEdge ? `; max edge: ${maxEdge}px` : ""
+      }\n`,
     );
     const serveUrl = await bundle({
       entryPoint: path.resolve("src/index.ts"),

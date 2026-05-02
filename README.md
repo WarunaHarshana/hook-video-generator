@@ -18,7 +18,7 @@ A full PDF guide with screenshots is included:
 - Analyze the video to find hook-worthy highlight moments.
 - Review highlights with thumbnail previews.
 - Preview individual highlights before rendering.
-- Preview the full hook with effects and music before final render.
+- Preview the full hook with effects and music before final render using a faster lower-resolution preview file.
 - Edit each highlight start time and duration.
 - Add or remove highlights manually.
 - Add a local music file or direct media file URL.

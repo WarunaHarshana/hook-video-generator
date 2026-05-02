@@ -361,7 +361,9 @@
       <div class="note">
         The source preview is not the final hook. It is only there to confirm
         the input file and inspect source content. Click Preview Hook to check
-        the full edit with effects and music before final rendering.
+        the full edit with effects and music before final rendering. Preview
+        renders use a smaller 720px maximum edge so they finish faster than a
+        full-resolution final render.
       </div>
 
       <h2>Highlight Editor</h2>
@@ -411,9 +413,9 @@
           <tr>
             <td>Preview Hook</td>
             <td>
-              Generates a managed preview file using the current highlights,
-              effects, music, color boost, and export settings, then loads it
-              into the Hook player.
+              Generates a faster managed preview file using the current
+              highlights, effects, music, color boost, and export settings,
+              then loads it into the Hook player.
             </td>
           </tr>
           <tr>

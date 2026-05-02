@@ -134,6 +134,7 @@ const projectPath = path.join(rootDir, "project.json");
 const manifestPath = path.join(rootDir, ".hook-workspace-manifest.json");
 const defaultOutputPath = path.join(rootDir, "hook.mp4");
 const previewPath = path.join(tempDir, "hook-preview.mp4");
+const previewMaxEdge = 720;
 const tsxCli = path.join(rootDir, "node_modules", "tsx", "dist", "cli.mjs");
 const jobs = new Map<string, Job>();
 const jobClients = new Map<string, Set<ServerResponse>>();
@@ -361,6 +362,38 @@ const resolveWorkspacePath = (value: string | undefined, fallback: string) => {
   }
 
   return path.isAbsolute(value) ? value : path.resolve(rootDir, value);
+};
+
+const evenDimension = (value: number) => {
+  return Math.max(2, Math.round(value / 2) * 2);
+};
+
+const previewDimensionsForProject = (project: ProjectJson | null) => {
+  if (!project) {
+    return null;
+  }
+
+  const width = Number(project.width);
+  const height = Number(project.height);
+  const currentMaxEdge = Math.max(width, height);
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || currentMaxEdge <= 0) {
+    return null;
+  }
+
+  if (currentMaxEdge <= previewMaxEdge) {
+    return {
+      width: Math.round(width),
+      height: Math.round(height),
+    };
+  }
+
+  const scale = previewMaxEdge / currentMaxEdge;
+
+  return {
+    width: evenDimension(width * scale),
+    height: evenDimension(height * scale),
+  };
 };
 
 const powershellString = (value: string) => {
@@ -1284,6 +1317,7 @@ const routeApi = async (
 ) => {
   if (req.method === "GET" && url.pathname === "/api/state") {
     const project = await loadProject();
+    const previewDimensions = previewDimensionsForProject(project);
     sendJson(res, 200, {
       project,
       thumbnails: await currentThumbnails(),
@@ -1292,6 +1326,8 @@ const routeApi = async (
       outputExists: existsSync(lastOutputPath),
       previewPath,
       previewExists: existsSync(previewPath),
+      previewWidth: previewDimensions?.width,
+      previewHeight: previewDimensions?.height,
       activeJobId,
       activeJob: activeJobId ? publicJob(jobs.get(activeJobId)!) : null,
     });
@@ -1603,6 +1639,8 @@ const routeApi = async (
       previewPath,
       "--render-mode",
       body.renderMode?.trim() || "auto",
+      "--max-edge",
+      String(previewMaxEdge),
     ];
 
     if (body.gl?.trim()) {
@@ -1628,6 +1666,8 @@ const routeApi = async (
         script: "scripts/render.ts",
         args,
         result: async () => {
+          const project = await loadProject();
+          const previewDimensions = previewDimensionsForProject(project);
           if (existsSync(previewPath)) {
             await registerCreatedFile(previewPath, "preview");
           }
@@ -1635,6 +1675,8 @@ const routeApi = async (
           return {
             previewPath,
             previewExists: existsSync(previewPath),
+            previewWidth: previewDimensions?.width,
+            previewHeight: previewDimensions?.height,
           };
         },
       }),
