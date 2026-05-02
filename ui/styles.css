@@ -215,6 +215,21 @@ select:focus {
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
+.effect-recommendation {
+  min-height: 34px;
+  border-left: 3px solid rgba(22, 111, 98, 0.35);
+  padding: 7px 9px;
+  background: #f5faf8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.effect-recommendation strong {
+  color: var(--accent-strong);
+}
+
 .output-reframe {
   min-height: 46px;
 }

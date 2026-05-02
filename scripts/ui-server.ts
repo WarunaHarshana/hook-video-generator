@@ -31,6 +31,23 @@ type EffectPreset =
   | "flash-cuts"
   | "impact-shake";
 
+type EffectRecommendation = {
+  preset: EffectPreset;
+  source: "video" | "music" | "video+music";
+  confidence: number;
+  reason: string;
+};
+
+type VideoAnalysisSummary = {
+  motionScore?: number;
+  shotDensityScore?: number;
+  spikeScore?: number;
+  dialogueScore?: number;
+  faceScore?: number;
+  sceneScore?: number;
+  energyScore?: number;
+};
+
 type BeatEvent = {
   time: number;
   strength: number;
@@ -60,6 +77,9 @@ type MusicSettings = {
     beatCount?: number;
     averageBeatGap?: number;
     suggestedBeatStyle?: BeatSyncIntensity;
+    paceShift?: number;
+    suggestedEffectPreset?: EffectPreset;
+    effectReason?: string;
     candidates?: Array<{
       start: number;
       duration: number;
@@ -82,6 +102,10 @@ type ProjectJson = {
   effectPreset?: EffectPreset;
   music?: MusicSettings;
   duration?: number;
+  analysis?: {
+    video?: VideoAnalysisSummary;
+    effectRecommendation?: EffectRecommendation;
+  };
   title?: string;
   highlights: HighlightSegment[];
 };
@@ -305,6 +329,152 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
       intensity: normalizeBeatSyncIntensity(beatSync?.intensity),
     },
     detected: input.detected,
+  };
+};
+
+const normalizeVideoSummary = (value: unknown): VideoAnalysisSummary | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as VideoAnalysisSummary;
+  return {
+    motionScore: clampNumber(input.motionScore, 0, 1, 0.45),
+    shotDensityScore: clampNumber(input.shotDensityScore, 0, 1, 0.45),
+    spikeScore: clampNumber(input.spikeScore, 0, 1, 0.35),
+    dialogueScore: clampNumber(input.dialogueScore, 0, 1, 0.45),
+    faceScore: clampNumber(input.faceScore, 0, 1, 0.45),
+    sceneScore: clampNumber(input.sceneScore, 0, 1, 0.45),
+    energyScore: clampNumber(input.energyScore, 0, 1, 0.45),
+  };
+};
+
+const normalizeEffectRecommendation = (
+  value: unknown,
+): EffectRecommendation | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as Partial<EffectRecommendation>;
+  return {
+    preset: normalizeEffectPreset(input.preset),
+    source:
+      input.source === "music" || input.source === "video+music"
+        ? input.source
+        : "video",
+    confidence: clampNumber(input.confidence, 0, 1, 0.5),
+    reason: input.reason?.trim() || "recommended from the latest analysis",
+  };
+};
+
+const normalizeProjectAnalysis = (
+  value: unknown,
+): ProjectJson["analysis"] | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as ProjectJson["analysis"];
+  const video = normalizeVideoSummary(input?.video);
+  const effectRecommendation = normalizeEffectRecommendation(
+    input?.effectRecommendation,
+  );
+
+  return video || effectRecommendation ? {video, effectRecommendation} : undefined;
+};
+
+const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation => {
+  const video = normalizeVideoSummary(project.analysis?.video);
+  const music = normalizeMusicSettings(project.music);
+  const musicEffect = normalizeEffectPreset(
+    music?.detected?.suggestedEffectPreset,
+  );
+  const musicReason = music?.detected?.effectReason?.trim();
+  const beatStyle = music?.detected?.suggestedBeatStyle;
+  const paceShift = normalizeNumber(music?.detected?.paceShift, 0);
+  const videoEnergy = normalizeNumber(video?.energyScore, 0.45);
+  const motion = normalizeNumber(video?.motionScore, 0.45);
+  const shotDensity = normalizeNumber(video?.shotDensityScore, 0.45);
+  const dialogue = normalizeNumber(video?.dialogueScore, 0.45);
+  const face = normalizeNumber(video?.faceScore, 0.45);
+  const dialogueFocus = Math.min(Math.max(dialogue * 0.68 + face * 0.32, 0), 1);
+
+  if (music?.detected?.suggestedEffectPreset) {
+    if (
+      musicEffect === "slow-fast-mix" ||
+      (paceShift >= 0.18 && beatStyle === "fast")
+    ) {
+      return {
+        preset: "slow-fast-mix",
+        source: "video+music",
+        confidence: 0.88,
+        reason: musicReason || "music builds from slower spacing into faster beats",
+      };
+    }
+
+    if (musicEffect === "fast-kinetic" || beatStyle === "fast") {
+      return {
+        preset: motion >= 0.5 || shotDensity >= 0.5 ? "fast-kinetic" : "beat-punch",
+        source: "video+music",
+        confidence: 0.82,
+        reason:
+          motion >= 0.5 || shotDensity >= 0.5
+            ? "fast music matches the video's motion and shot changes"
+            : "fast music needs punchy accents without heavy camera motion",
+      };
+    }
+
+    if (musicEffect === "smooth-slow" || beatStyle === "loose") {
+      return {
+        preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-slow" : "auto",
+        source: "video+music",
+        confidence: 0.78,
+        reason:
+          dialogueFocus >= 0.58 || videoEnergy < 0.58
+            ? "slower music fits dialogue or calmer highlights"
+            : "slower music with mixed video energy works best with Auto director",
+      };
+    }
+
+    if (musicEffect === "beat-punch") {
+      return {
+        preset: "beat-punch",
+        source: "video+music",
+        confidence: 0.74,
+        reason: musicReason || "music has enough energy for punchy cut accents",
+      };
+    }
+  }
+
+  const existing = normalizeEffectRecommendation(
+    project.analysis?.effectRecommendation,
+  );
+
+  return (
+    existing ?? {
+      preset: "auto",
+      source: "video",
+      confidence: 0.5,
+      reason: "not enough music signal yet, so Auto director is the safest start",
+    }
+  );
+};
+
+const applyEffectRecommendation = (project: ProjectJson): ProjectJson => {
+  const previousAnalysis = normalizeProjectAnalysis(project.analysis);
+  const effectRecommendation = recommendEffectFromProject({
+    ...project,
+    analysis: previousAnalysis,
+  });
+
+  return {
+    ...project,
+    effectPreset: effectRecommendation.preset,
+    analysis: {
+      ...previousAnalysis,
+      effectRecommendation,
+    },
   };
 };
 
@@ -950,6 +1120,7 @@ const loadProject = async () => {
     colorEnhancement: normalizeColorEnhancement(input.colorEnhancement),
     effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
+    analysis: normalizeProjectAnalysis(input.analysis),
   };
 };
 
@@ -994,6 +1165,7 @@ const validateProject = (input: ProjectJson): ProjectJson => {
     effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
     duration: normalizeNumber(input.duration, 0) || undefined,
+    analysis: normalizeProjectAnalysis(input.analysis),
     title: input.title?.trim() || undefined,
     highlights,
   };
@@ -1560,10 +1732,10 @@ const routeApi = async (
             },
           };
 
-          const nextProject = validateProject({
+          const nextProject = applyEffectRecommendation(validateProject({
             ...currentProject,
             music,
-          });
+          }));
           await writeFile(projectPath, `${JSON.stringify(nextProject, null, 2)}\n`);
           await registerCreatedFile(projectPath, "project");
 

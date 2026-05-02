@@ -31,6 +31,7 @@ const els = {
   chooseOutputBtn: document.querySelector("#chooseOutputBtn"),
   outputAspectRatio: document.querySelector("#outputAspectRatio"),
   effectPreset: document.querySelector("#effectPreset"),
+  effectRecommendation: document.querySelector("#effectRecommendation"),
   colorEnhancement: document.querySelector("#colorEnhancement"),
   autoReframe: document.querySelector("#autoReframe"),
   musicPath: document.querySelector("#musicPath"),
@@ -89,6 +90,73 @@ const api = async (path, options = {}) => {
 const seconds = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? `${number.toFixed(2)}s` : "-";
+};
+
+const effectLabels = {
+  clean: "Clean cuts",
+  auto: "Auto director",
+  "smooth-slow": "Slow motion",
+  "fast-kinetic": "Kinetic whip",
+  "slow-fast-mix": "Slow-fast ramp",
+  "beat-punch": "Beat punch",
+  "flash-cuts": "Flash cuts",
+  "impact-shake": "Impact shake",
+};
+
+const escapeHtml = (value) => {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+};
+
+const getEffectRecommendation = (project = state.project) => {
+  return project?.analysis?.effectRecommendation || null;
+};
+
+const renderEffectRecommendation = (project = state.project) => {
+  const recommendation = getEffectRecommendation(project);
+
+  if (!recommendation) {
+    els.effectRecommendation.textContent =
+      project?.highlights?.length
+        ? "Analyze music to refine the effect recommendation."
+        : "Analyze hooks to get an effect recommendation.";
+    return;
+  }
+
+  const label = effectLabels[recommendation.preset] || recommendation.preset;
+  const source =
+    recommendation.source === "video+music"
+      ? "video and music"
+      : recommendation.source || "video";
+  const confidence = Math.round((Number(recommendation.confidence) || 0) * 100);
+  const confidenceText = confidence > 0 ? ` (${confidence}%)` : "";
+  els.effectRecommendation.innerHTML = `<strong>Recommended: ${escapeHtml(
+    label,
+  )}</strong>${confidenceText} from ${escapeHtml(source)} analysis. ${escapeHtml(
+    recommendation.reason || "",
+  )}`;
+};
+
+const applyRecommendedEffectToControls = (project = state.project) => {
+  const recommendation = getEffectRecommendation(project);
+  if (!recommendation?.preset || !effectLabels[recommendation.preset]) {
+    return false;
+  }
+
+  els.effectPreset.value = recommendation.preset;
+  if (state.project) {
+    state.project = {
+      ...state.project,
+      effectPreset: recommendation.preset,
+    };
+  }
+
+  renderEffectRecommendation(state.project || project);
+  return true;
 };
 
 const totalHighlightSeconds = () => {
@@ -828,12 +896,14 @@ const renderProject = (serverState = {}) => {
     if (project.highlights.length > 0) {
       els.clipDuration.value = project.highlights[0].duration;
     }
+    renderEffectRecommendation(project);
   } else {
     els.sourcePath.value = "";
     els.titleText.value = "";
     els.uploadStatus.textContent = "";
     els.outputAspectRatio.value = "source";
     els.effectPreset.value = "clean";
+    renderEffectRecommendation(null);
     els.colorEnhancement.value = "off";
     els.autoReframe.checked = false;
     syncOutputFormatControls();
@@ -968,6 +1038,7 @@ const applyJobUpdate = async (job, options = {}) => {
   if (job.kind === "analyze" && state.project) {
     els.outputAspectRatio.value = state.pendingOutputAspectRatio || "source";
     els.autoReframe.checked = Boolean(state.pendingAutoReframe);
+    applyRecommendedEffectToControls(state.project);
     applyOutputFormatToProject();
     await api("/api/project", {
       method: "POST",
@@ -977,13 +1048,26 @@ const applyJobUpdate = async (job, options = {}) => {
   renderProject(data);
 
   if (job.kind === "music") {
+    applyRecommendedEffectToControls(state.project);
+    if (state.project) {
+      applyOutputFormatToProject();
+      await api("/api/project", {
+        method: "POST",
+        body: JSON.stringify(state.project),
+      });
+    }
+    renderProject({project: state.project, thumbnails: state.thumbnails});
     setMusicProgress(100, "Music analysis complete");
     const style = state.project?.music?.detected?.suggestedBeatStyle ||
       state.project?.music?.beatSync?.intensity ||
       "tight";
+    const recommendation = getEffectRecommendation(state.project);
+    const effectText = recommendation
+      ? ` Effect auto-selected: ${effectLabels[recommendation.preset] || recommendation.preset}.`
+      : "";
     els.musicStatus.textContent = state.project?.music?.beats?.length
-      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`
-      : "Strongest music section selected for the final hook.";
+      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.${effectText}`
+      : `Strongest music section selected for the final hook.${effectText}`;
     return;
   }
 

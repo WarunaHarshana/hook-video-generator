@@ -11,6 +11,33 @@ type HighlightSegment = {
   duration: number;
 };
 
+type EffectPreset =
+  | "clean"
+  | "auto"
+  | "smooth-slow"
+  | "fast-kinetic"
+  | "slow-fast-mix"
+  | "beat-punch"
+  | "flash-cuts"
+  | "impact-shake";
+
+type EffectRecommendation = {
+  preset: EffectPreset;
+  source: "video" | "music" | "video+music";
+  confidence: number;
+  reason: string;
+};
+
+type VideoAnalysisSummary = {
+  motionScore: number;
+  shotDensityScore: number;
+  spikeScore: number;
+  dialogueScore: number;
+  faceScore: number;
+  sceneScore: number;
+  energyScore: number;
+};
+
 type ProjectJson = {
   src: string;
   width: number;
@@ -21,8 +48,12 @@ type ProjectJson = {
   outputAspectRatio: "source";
   reframeMode: "none";
   colorEnhancement: "off";
-  effectPreset: "clean";
+  effectPreset: EffectPreset;
   duration: number;
+  analysis?: {
+    video?: VideoAnalysisSummary;
+    effectRecommendation?: EffectRecommendation;
+  };
   highlights: HighlightSegment[];
 };
 
@@ -54,6 +85,13 @@ type HookCandidate = {
   audioScore: number;
   endScore: number;
   score: number;
+};
+
+type HookSelection = {
+  highlights: HighlightSegment[];
+  selectedCandidates: HookCandidate[];
+  videoSummary: VideoAnalysisSummary;
+  effectRecommendation: EffectRecommendation;
 };
 
 const execFileAsync = promisify(execFile);
@@ -727,13 +765,118 @@ const selectDiverseHighlights = ({
     }
   }
 
-  return selected
+  const selectedCandidates = selected
     .slice(0, maxClips)
-    .sort((a, b) => a.start - b.start)
-    .map((candidate) => ({
+    .sort((a, b) => a.start - b.start);
+
+  return {
+    highlights: selectedCandidates.map((candidate) => ({
       start: Number(candidate.start.toFixed(3)),
       duration: Number(candidate.duration.toFixed(3)),
-    }));
+    })),
+    selectedCandidates,
+  };
+};
+
+const averageScore = (
+  candidates: HookCandidate[],
+  selector: (candidate: HookCandidate) => number,
+) => {
+  if (candidates.length === 0) {
+    return 0.45;
+  }
+
+  return clamp(
+    candidates.reduce((sum, candidate) => sum + selector(candidate), 0) /
+      candidates.length,
+    0,
+    1,
+  );
+};
+
+const summarizeVideo = (selectedCandidates: HookCandidate[]): VideoAnalysisSummary => {
+  const motionScore = averageScore(selectedCandidates, (candidate) => candidate.motionScore);
+  const shotDensityScore = averageScore(
+    selectedCandidates,
+    (candidate) => candidate.shotDensityScore,
+  );
+  const spikeScore = averageScore(selectedCandidates, (candidate) => candidate.spikeScore);
+  const dialogueScore = averageScore(
+    selectedCandidates,
+    (candidate) => candidate.dialogueScore,
+  );
+  const faceScore = averageScore(selectedCandidates, (candidate) => candidate.faceScore);
+  const sceneScore = averageScore(selectedCandidates, (candidate) => candidate.sceneScore);
+  const energyScore = clamp(
+    motionScore * 0.34 +
+      shotDensityScore * 0.24 +
+      spikeScore * 0.18 +
+      sceneScore * 0.12 +
+      (1 - dialogueScore) * 0.12,
+    0,
+    1,
+  );
+
+  return {
+    motionScore: Number(motionScore.toFixed(3)),
+    shotDensityScore: Number(shotDensityScore.toFixed(3)),
+    spikeScore: Number(spikeScore.toFixed(3)),
+    dialogueScore: Number(dialogueScore.toFixed(3)),
+    faceScore: Number(faceScore.toFixed(3)),
+    sceneScore: Number(sceneScore.toFixed(3)),
+    energyScore: Number(energyScore.toFixed(3)),
+  };
+};
+
+const recommendEffectFromVideo = (
+  summary: VideoAnalysisSummary,
+): EffectRecommendation => {
+  const dialogueFocus = clamp(
+    summary.dialogueScore * 0.68 + summary.faceScore * 0.32,
+    0,
+    1,
+  );
+  const fastAction = clamp(
+    summary.energyScore * 0.46 +
+      summary.motionScore * 0.3 +
+      summary.shotDensityScore * 0.24,
+    0,
+    1,
+  );
+
+  if (dialogueFocus >= 0.62 && summary.motionScore < 0.55) {
+    return {
+      preset: "smooth-slow",
+      source: "video",
+      confidence: Number(clamp(dialogueFocus, 0.5, 0.92).toFixed(2)),
+      reason: "dialogue and face-heavy highlights with calmer motion",
+    };
+  }
+
+  if (fastAction >= 0.66) {
+    return {
+      preset: "fast-kinetic",
+      source: "video",
+      confidence: Number(clamp(fastAction, 0.55, 0.94).toFixed(2)),
+      reason: "high motion and frequent shot changes in the selected hooks",
+    };
+  }
+
+  if (summary.spikeScore >= 0.62) {
+    return {
+      preset: "beat-punch",
+      source: "video",
+      confidence: Number(clamp(summary.spikeScore, 0.52, 0.9).toFixed(2)),
+      reason: "strong audio spikes around the hook moments",
+    };
+  }
+
+  return {
+    preset: "auto",
+    source: "video",
+    confidence: Number(clamp(summary.energyScore, 0.48, 0.78).toFixed(2)),
+    reason: "mixed pacing, so Auto director can adapt per clip",
+  };
 };
 
 const sceneTimestampsToHighlights = async ({
@@ -748,7 +891,7 @@ const sceneTimestampsToHighlights = async ({
   clipDuration: number;
   maxClips: number;
   sourceDuration: number;
-}) => {
+}): Promise<HookSelection> => {
   const pool = buildCandidatePool({
     shotChanges,
     clipDuration,
@@ -775,11 +918,19 @@ const sceneTimestampsToHighlights = async ({
 
   progress(84, "Selecting strongest diverse hook moments");
 
-  return selectDiverseHighlights({
+  const selection = selectDiverseHighlights({
     candidates: scored,
     clipDuration,
     maxClips,
   });
+  const videoSummary = summarizeVideo(selection.selectedCandidates);
+  const effectRecommendation = recommendEffectFromVideo(videoSummary);
+
+  return {
+    ...selection,
+    videoSummary,
+    effectRecommendation,
+  };
 };
 
 const main = async () => {
@@ -812,9 +963,19 @@ const main = async () => {
       ? `Found ${shotChanges.length} shot-change candidates`
       : "No shot changes found, using timeline anchors",
   );
-  const highlights =
+  const hookSelection =
     highlightsFromFile && highlightsFromFile.length > 0
-      ? highlightsFromFile
+      ? {
+          highlights: highlightsFromFile,
+          selectedCandidates: [],
+          videoSummary: summarizeVideo([]),
+          effectRecommendation: {
+            preset: "auto",
+            source: "video",
+            confidence: 0.5,
+            reason: "manual highlights were provided, so Auto director is the safest starting point",
+          } satisfies EffectRecommendation,
+        }
       : await sceneTimestampsToHighlights({
           input: inputPath,
           shotChanges,
@@ -822,6 +983,7 @@ const main = async () => {
           maxClips,
           sourceDuration: metadata.duration,
         });
+  const {highlights, videoSummary, effectRecommendation} = hookSelection;
 
   const project: ProjectJson = {
     src: inputPath,
@@ -833,8 +995,12 @@ const main = async () => {
     outputAspectRatio: "source",
     reframeMode: "none",
     colorEnhancement: "off",
-    effectPreset: "clean",
+    effectPreset: effectRecommendation.preset,
     duration: metadata.duration,
+    analysis: {
+      video: videoSummary,
+      effectRecommendation,
+    },
     highlights,
   };
 

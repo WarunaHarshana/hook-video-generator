@@ -17,6 +17,15 @@ type BeatEvent = {
 };
 
 type BeatSyncIntensity = "loose" | "tight" | "fast";
+type EffectPreset =
+  | "clean"
+  | "auto"
+  | "smooth-slow"
+  | "fast-kinetic"
+  | "slow-fast-mix"
+  | "beat-punch"
+  | "flash-cuts"
+  | "impact-shake";
 
 type AnalysisResult = {
   music: {
@@ -41,6 +50,9 @@ type AnalysisResult = {
       beatCount: number;
       averageBeatGap: number;
       suggestedBeatStyle: BeatSyncIntensity;
+      paceShift: number;
+      suggestedEffectPreset: EffectPreset;
+      effectReason: string;
       candidates: Candidate[];
     };
   };
@@ -383,6 +395,89 @@ const suggestBeatStyle = (
   };
 };
 
+const selectedBeatGaps = (
+  beats: number[],
+  selectedStart: number,
+  selectedDuration: number,
+) => {
+  const selectedBeats = beats.filter(
+    (beat) => beat >= selectedStart && beat <= selectedStart + selectedDuration,
+  );
+
+  return selectedBeats
+    .slice(1)
+    .map((beat, index) => ({
+      gap: beat - selectedBeats[index],
+      midpoint: selectedBeats[index] + (beat - selectedBeats[index]) / 2,
+    }))
+    .filter((item) => Number.isFinite(item.gap) && item.gap > 0.08);
+};
+
+const suggestEffectPreset = ({
+  beats,
+  selectedStart,
+  selectedDuration,
+  beatStyle,
+  energy,
+}: {
+  beats: number[];
+  selectedStart: number;
+  selectedDuration: number;
+  beatStyle: BeatSyncIntensity;
+  energy: number;
+}): {preset: EffectPreset; paceShift: number; reason: string} => {
+  const gaps = selectedBeatGaps(beats, selectedStart, selectedDuration);
+  const midpoint = selectedStart + selectedDuration / 2;
+  const firstHalfGap = median(
+    gaps.filter((item) => item.midpoint < midpoint).map((item) => item.gap),
+  );
+  const secondHalfGap = median(
+    gaps.filter((item) => item.midpoint >= midpoint).map((item) => item.gap),
+  );
+  const paceShift =
+    firstHalfGap > 0 && secondHalfGap > 0
+      ? Number((firstHalfGap - secondHalfGap).toFixed(3))
+      : 0;
+
+  if (paceShift >= 0.18 && secondHalfGap > 0 && secondHalfGap <= 0.82) {
+    return {
+      preset: "slow-fast-mix",
+      paceShift,
+      reason: "music starts slower and gets denser later",
+    };
+  }
+
+  if (beatStyle === "fast") {
+    return {
+      preset: "fast-kinetic",
+      paceShift,
+      reason: "music has dense, fast beats",
+    };
+  }
+
+  if (beatStyle === "loose") {
+    return {
+      preset: "smooth-slow",
+      paceShift,
+      reason: "music has slower spacing between beats",
+    };
+  }
+
+  if (energy >= 0.42) {
+    return {
+      preset: "beat-punch",
+      paceShift,
+      reason: "music has enough energy for punchy cut accents",
+    };
+  }
+
+  return {
+    preset: "auto",
+    paceShift,
+    reason: "music pacing is balanced, so Auto director can adapt per clip",
+  };
+};
+
 const main = async () => {
   const input = readFlag("--input");
   const out = path.resolve(readFlag("--out") ?? ".tmp/music-analysis.json");
@@ -425,6 +520,13 @@ const main = async () => {
     ? Number(audioDuration.toFixed(3))
     : best.duration;
   const beatStyle = suggestBeatStyle(beats, selectedStart, selectedDuration);
+  const effect = suggestEffectPreset({
+    beats,
+    selectedStart,
+    selectedDuration,
+    beatStyle: beatStyle.intensity,
+    energy: best.energy,
+  });
   const result: AnalysisResult = {
     music: {
       src: path.resolve(input),
@@ -448,6 +550,9 @@ const main = async () => {
         beatCount: beatStyle.beatCount,
         averageBeatGap: beatStyle.averageGap,
         suggestedBeatStyle: beatStyle.intensity,
+        paceShift: effect.paceShift,
+        suggestedEffectPreset: effect.preset,
+        effectReason: effect.reason,
         candidates,
       },
     },

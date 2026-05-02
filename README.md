@@ -26,6 +26,7 @@ A full PDF guide with screenshots is included:
 - Listen to the full music file and the analyzed music section.
 - Automatically detect beats in the music.
 - Auto-select beat style based on the music rhythm.
+- Auto-recommend the visual effect from video motion/dialogue signals and music beat analysis.
 - Cut highlights to music beats.
 - Control background music volume and original source audio volume.
 - Choose visual effects: clean cuts, auto director, slow motion, kinetic whip, slow-fast ramp, beat punch, flash cuts, or impact shake.
@@ -80,6 +81,7 @@ If port `3210` is already in use, the app will show the next available URL in th
 
 - `Analyze Music` finds a strong music section for the final hook duration.
 - `Beat style` is selected automatically after music analysis.
+- `Effects` is also recommended automatically after hook analysis, then refined after music analysis.
 - `Loose` creates slower, longer rhythm cuts.
 - `Tight` is the balanced default for most hooks.
 - `Fast` creates quicker cuts for dense, energetic beats.
