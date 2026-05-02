@@ -562,8 +562,9 @@
           <tr>
             <td>Effects</td>
             <td>
-              Selects visual cut effects. Auto reactive changes intensity and
-              pacing based on detected music beat strength and local tempo.
+              Selects visual cut effects. Auto director chooses slower,
+              punchier, or faster motion based on detected music beat strength
+              and local tempo.
             </td>
           </tr>
           <tr>
@@ -638,30 +639,37 @@
             <td>Simple clip stitching with fades and the progress bar.</td>
           </tr>
           <tr>
-            <td>Auto reactive</td>
+            <td>Auto director</td>
             <td>
-              Uses analyzed beat strength and local music pace to keep slow
-              parts smoother and faster parts more energetic.
+              Uses analyzed beat strength and local music pace to choose
+              between slow motion, beat punch, and kinetic whip moments.
             </td>
           </tr>
           <tr>
-            <td>Smooth slow</td>
-            <td>Uses gentle fades and slow push-in motion for slower songs.</td>
-          </tr>
-          <tr>
-            <td>Fast kinetic</td>
-            <td>Uses quick, restrained punch motion for dense fast beats.</td>
-          </tr>
-          <tr>
-            <td>Slow-fast mix</td>
+            <td>Slow motion</td>
             <td>
-              Follows songs that build from slow to fast by switching the cut
-              feel as the local tempo changes.
+              Slows the source playback, softens contrast, and adds a calm
+              vignette for slower songs or emotional moments.
+            </td>
+          </tr>
+          <tr>
+            <td>Kinetic whip</td>
+            <td>
+              Speeds the clip up, adds restrained motion blur, speed-line
+              texture, and quick side movement for dense fast beats.
+            </td>
+          </tr>
+          <tr>
+            <td>Slow-fast ramp</td>
+            <td>
+              Follows songs that build from slow to fast, moving from slower
+              playback into punchier and faster kinetic moments. If no music is
+              analyzed, it still uses a gentle beginning-to-end ramp.
             </td>
           </tr>
           <tr>
             <td>Beat punch</td>
-            <td>Adds a quick punch/flash at cut points.</td>
+            <td>Adds a short impact pulse at cut points without changing speed.</td>
           </tr>
           <tr>
             <td>Flash cuts</td>
@@ -669,7 +677,10 @@
           </tr>
           <tr>
             <td>Impact shake</td>
-            <td>Adds stronger movement on impact cuts when auto reframe is active.</td>
+            <td>
+              Slows the clip down and adds heavier shake/dark vignette on
+              impact cuts when auto reframe is active.
+            </td>
           </tr>
         </tbody>
       </table>

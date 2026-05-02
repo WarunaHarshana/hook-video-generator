@@ -319,20 +319,42 @@ const buildTimeline = (
   fps: number,
   music?: MusicSettings,
 ): ClipWithTiming[] => {
+  const syncedHighlights = buildBeatSyncedHighlights(highlights, music);
+  const hasTempoMap = Boolean(
+    music?.enabled &&
+      music.src &&
+      Array.isArray(music.beats) &&
+      music.beats.length >= 2,
+  );
+  const totalFrames = syncedHighlights.reduce((sum, highlight) => {
+    return sum + Math.max(1, secondsToFrames(highlight.duration, fps));
+  }, 0);
   let cursor = 0;
 
-  return buildBeatSyncedHighlights(highlights, music)
+  return syncedHighlights
     .map((highlight) => {
       const durationInFrames = Math.max(
         1,
         secondsToFrames(highlight.duration, fps),
       );
+      const timelineSeconds = cursor / fps;
+      const progress = totalFrames <= 0 ? 0 : cursor / totalFrames;
+      const fallbackPace: EffectPace =
+        progress < 0.34 ? "slow" : progress < 0.68 ? "medium" : "fast";
       const clip = {
         ...highlight,
         from: cursor,
         durationInFrames,
-        effectStrength: beatStrengthAt(music, cursor / fps),
-        effectPace: effectPaceAt(music, cursor / fps),
+        effectStrength: hasTempoMap
+          ? beatStrengthAt(music, timelineSeconds)
+          : fallbackPace === "fast"
+            ? 0.62
+            : fallbackPace === "medium"
+              ? 0.44
+              : 0.28,
+        effectPace: hasTempoMap
+          ? effectPaceAt(music, timelineSeconds)
+          : fallbackPace,
       };
 
       cursor += durationInFrames;
@@ -377,7 +399,7 @@ const resolveEffectPreset = (
       return "fast-kinetic";
     }
 
-    return "smooth-slow";
+    return "beat-punch";
   }
 
   if (preset !== "auto") {
@@ -399,6 +421,47 @@ const resolveEffectPreset = (
   return "smooth-slow";
 };
 
+const effectPlaybackRate = (
+  requestedPreset: EffectPreset,
+  resolvedPreset: ResolvedEffectPreset,
+  effectPace: EffectPace,
+  effectStrength: number,
+) => {
+  if (requestedPreset === "slow-fast-mix") {
+    if (effectPace === "slow") {
+      return 0.66;
+    }
+
+    if (effectPace === "fast") {
+      return 1.12;
+    }
+
+    return 0.82;
+  }
+
+  if (resolvedPreset === "smooth-slow") {
+    return 0.66;
+  }
+
+  if (resolvedPreset === "fast-kinetic") {
+    return 1.12 + clamp(effectStrength, 0, 1) * 0.1;
+  }
+
+  if (resolvedPreset === "beat-punch") {
+    return 1;
+  }
+
+  if (resolvedPreset === "impact-shake") {
+    return 0.7;
+  }
+
+  if (resolvedPreset === "flash-cuts") {
+    return 1.03;
+  }
+
+  return 1;
+};
+
 const cutPulse = (
   frame: number,
   durationInFrames: number,
@@ -410,7 +473,13 @@ const cutPulse = (
   }
 
   const maxFrames =
-    preset === "smooth-slow" ? 15 : preset === "impact-shake" ? 8 : 6;
+    preset === "smooth-slow"
+      ? 24
+      : preset === "impact-shake"
+        ? 10
+        : preset === "fast-kinetic"
+          ? 5
+          : 7;
   const pulseFrames = Math.max(
     1,
     Math.min(maxFrames, Math.max(1, Math.floor(durationInFrames / 3))),
@@ -424,9 +493,11 @@ const cutPulse = (
 
   const presetStrength =
     preset === "smooth-slow"
-      ? 0.22
+      ? 0.18
       : preset === "fast-kinetic"
-        ? 0.58
+        ? 0.78
+        : preset === "beat-punch"
+          ? 0.72
         : 1;
 
   return pulse * clamp(effectStrength, 0.18, 1) * presetStrength;
@@ -501,6 +572,132 @@ const flashOpacity = (
   return 0;
 };
 
+const effectVideoFilter = (
+  colorEnhancement: ColorEnhancement,
+  preset: ResolvedEffectPreset,
+  pulse: number,
+) => {
+  const color = colorEnhancementFilter(colorEnhancement);
+  const effect =
+    preset === "smooth-slow"
+      ? "saturate(0.92) contrast(1.04)"
+      : preset === "fast-kinetic"
+        ? `contrast(1.1) saturate(1.08) blur(${(pulse * 0.65).toFixed(2)}px)`
+        : preset === "beat-punch"
+          ? `contrast(1.12) saturate(1.08) brightness(${(1 + pulse * 0.035).toFixed(3)})`
+          : preset === "impact-shake"
+            ? `contrast(1.18) saturate(1.12) blur(${(pulse * 0.45).toFixed(2)}px)`
+            : preset === "flash-cuts"
+              ? `contrast(1.16) saturate(1.06) brightness(${(1 + pulse * 0.02).toFixed(3)})`
+            : "none";
+
+  return [color, effect].filter((filter) => filter !== "none").join(" ") || "none";
+};
+
+const EffectOverlay: React.FC<{
+  frame: number;
+  pulse: number;
+  preset: ResolvedEffectPreset;
+  requestedPreset: EffectPreset;
+  effectStrength: number;
+}> = ({frame, pulse, preset, requestedPreset, effectStrength}) => {
+  const whiteFlash = flashOpacity(pulse, preset, effectStrength, requestedPreset);
+
+  if (preset === "smooth-slow") {
+    const drift = interpolate(frame, [0, 90], [-8, 8], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: Easing.inOut(Easing.cubic),
+    });
+
+    return (
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(circle at 50% 44%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 34%, rgba(0,0,0,0.32) 100%)",
+          opacity: 0.42,
+          pointerEvents: "none",
+          transform: `translate3d(${drift}px, 0, 0)`,
+        }}
+      />
+    );
+  }
+
+  if (preset === "fast-kinetic") {
+    const isSlowFastMix = requestedPreset === "slow-fast-mix";
+    const lineOpacity = pulse * (isSlowFastMix ? 0.14 : 0.34);
+    const lineAlpha = isSlowFastMix ? 0.14 : 0.24;
+    const travel = isSlowFastMix ? [-18, 10] : [-36, 24];
+
+    return (
+      <>
+        <AbsoluteFill
+          style={{
+            background:
+              `repeating-linear-gradient(105deg, rgba(255,255,255,0) 0 18px, rgba(255,255,255,${lineAlpha}) 18px 20px)`,
+            mixBlendMode: "screen",
+            opacity: lineOpacity,
+            pointerEvents: "none",
+            transform: `translate3d(${interpolate(frame, [0, 8], travel, {
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+              easing: Easing.out(Easing.cubic),
+            })}px, 0, 0)`,
+          }}
+        />
+        <AbsoluteFill
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(0,0,0,0.34) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 78%, rgba(0,0,0,0.34) 100%)",
+            opacity: 0.55,
+            pointerEvents: "none",
+          }}
+        />
+      </>
+    );
+  }
+
+  if (preset === "beat-punch") {
+    return (
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(circle at 50% 52%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 24%, rgba(0,0,0,0.42) 78%, rgba(0,0,0,0.58) 100%)",
+          opacity: pulse * 0.7,
+          pointerEvents: "none",
+        }}
+      />
+    );
+  }
+
+  if (preset === "impact-shake") {
+    return (
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.12) 30%, rgba(0,0,0,0.68) 100%)",
+          opacity: 0.2 + pulse * 0.42,
+          pointerEvents: "none",
+        }}
+      />
+    );
+  }
+
+  if (whiteFlash > 0) {
+    return (
+      <AbsoluteFill
+        style={{
+          backgroundColor: "#fff",
+          opacity: whiteFlash,
+          pointerEvents: "none",
+        }}
+      />
+    );
+  }
+
+  return null;
+};
+
 const SourceClip: React.FC<{
   clip: ClipWithTiming;
   src: string;
@@ -538,16 +735,28 @@ const SourceClip: React.FC<{
     resolvedPreset,
     clip.effectStrength,
   );
+  const styledPulse = effectPreset === "slow-fast-mix" ? pulse * 0.45 : pulse;
+  const playbackRate = effectPlaybackRate(
+    effectPreset,
+    resolvedPreset,
+    clip.effectPace,
+    clip.effectStrength,
+  );
   const trimBefore = secondsToFrames(clip.start, fps);
-  const trimAfter = secondsToFrames(clip.start + clip.duration, fps);
+  const trimAfter = secondsToFrames(
+    clip.start + clip.duration * Math.max(1, playbackRate) + 0.2,
+    fps,
+  );
   const autoReframe = reframeMode === "auto";
   const portraitFrame = width < height;
   const panDistance =
     resolvedPreset === "smooth-slow"
-      ? 4
+      ? 12
       : resolvedPreset === "fast-kinetic"
-        ? 9
-        : 7;
+        ? 18
+        : resolvedPreset === "beat-punch"
+          ? 5
+          : 8;
   const panOffset =
     index % 3 === 0 ? -panDistance : index % 3 === 1 ? 0 : panDistance;
   const pan = autoReframe
@@ -564,11 +773,13 @@ const SourceClip: React.FC<{
     : 50;
   const endScale =
     resolvedPreset === "smooth-slow"
-      ? 1.022
+      ? 1.07
       : resolvedPreset === "fast-kinetic"
-        ? 1.038
-        : 1.045;
-  const scale = interpolate(frame, [0, clip.durationInFrames], [1.006, endScale], {
+        ? 1.018
+        : resolvedPreset === "beat-punch"
+          ? 1.02
+          : 1.045;
+  const scale = interpolate(frame, [0, clip.durationInFrames], [1.002, endScale], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing:
@@ -583,13 +794,15 @@ const SourceClip: React.FC<{
       resolvedPreset === "beat-punch" ||
       resolvedPreset === "impact-shake" ||
       resolvedPreset === "flash-cuts")
-      ? pulse *
+      ? styledPulse *
         (resolvedPreset === "smooth-slow"
           ? 0.006
           : resolvedPreset === "fast-kinetic"
-            ? 0.022
+            ? 0.036
+            : resolvedPreset === "beat-punch"
+              ? 0.044
             : resolvedPreset === "impact-shake"
-              ? 0.018
+              ? 0.038
               : 0.02)
       : 0;
   const shakePreset =
@@ -601,20 +814,22 @@ const SourceClip: React.FC<{
   const shakeAmount =
     autoReframe && shakePreset > 0
       ? Math.sin(frame * 2.1 + index) *
-        pulse *
+        styledPulse *
         Math.max(2, width * 0.0038) *
         (0.5 + clip.effectStrength * 0.55) *
         shakePreset
       : 0;
+  const rotation =
+    autoReframe && (resolvedPreset === "fast-kinetic" || resolvedPreset === "impact-shake")
+      ? Math.sin(frame * (resolvedPreset === "impact-shake" ? 2.8 : 1.4) + index) *
+        styledPulse *
+        (resolvedPreset === "impact-shake" ? 0.75 : 0.32)
+      : 0;
   const transform = autoReframe
-    ? `translate3d(${shakeAmount}px, 0, 0) scale(${scale + effectScale})`
+    ? `translate3d(${shakeAmount}px, 0, 0) scale(${
+        scale + effectScale * (effectPreset === "slow-fast-mix" ? 0.55 : 1)
+      }) rotate(${rotation}deg)`
     : undefined;
-  const overlayOpacity = flashOpacity(
-    pulse,
-    resolvedPreset,
-    clip.effectStrength,
-    effectPreset,
-  );
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>
@@ -622,6 +837,8 @@ const SourceClip: React.FC<{
         src={videoSrc}
         trimBefore={trimBefore}
         trimAfter={trimAfter}
+        playbackRate={playbackRate}
+        toneFrequency={playbackRate < 0.98 ? clamp(1 / playbackRate, 0.7, 1.5) : undefined}
         volume={sourceVolume}
         style={{
           width: "100%",
@@ -634,7 +851,7 @@ const SourceClip: React.FC<{
             : "50% 50%",
           opacity: visualOpacity,
           transform,
-          filter: colorEnhancementFilter(colorEnhancement),
+          filter: effectVideoFilter(colorEnhancement, resolvedPreset, styledPulse),
         }}
       />
       <AbsoluteFill
@@ -644,15 +861,13 @@ const SourceClip: React.FC<{
           pointerEvents: "none",
         }}
       />
-      {overlayOpacity > 0 ? (
-        <AbsoluteFill
-          style={{
-            backgroundColor: "#fff",
-            opacity: overlayOpacity,
-            pointerEvents: "none",
-          }}
-        />
-      ) : null}
+      <EffectOverlay
+        frame={frame}
+        pulse={styledPulse}
+        preset={resolvedPreset}
+        requestedPreset={effectPreset}
+        effectStrength={clip.effectStrength}
+      />
     </AbsoluteFill>
   );
 };
