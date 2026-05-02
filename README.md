@@ -18,6 +18,7 @@ A full PDF guide with screenshots is included:
 - Analyze the video to find hook-worthy highlight moments.
 - Review highlights with thumbnail previews.
 - Preview individual highlights before rendering.
+- Preview the full hook with effects and music before final render.
 - Edit each highlight start time and duration.
 - Add or remove highlights manually.
 - Add a local music file or direct media file URL.
@@ -71,8 +72,9 @@ If port `3210` is already in use, the app will show the next available URL in th
 8. Click `Analyze Music` to find a strong music section and auto-pick beat style.
 9. Enable `Cut highlights to music beats` if you want rhythm-based cuts.
 10. Choose the final aspect ratio and effects.
-11. Choose the output path.
-12. Click `Render Final Hook`.
+11. Click `Preview Hook` to check the full edited hook with effects and music.
+12. Choose the output path.
+13. Click `Render Final Hook`.
 
 ## Music And Beat Sync
 

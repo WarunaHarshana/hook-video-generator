@@ -355,13 +355,13 @@
       <h2>Preview Area</h2>
       <p>
         The Source preview shows the selected original video. The Hook preview
-        shows the rendered output after a final render exists. Both previews
-        have a Full button for fullscreen viewing.
+        shows either the generated preview render or the final rendered output.
+        Both previews have a Full button for fullscreen viewing.
       </p>
       <div class="note">
         The source preview is not the final hook. It is only there to confirm
-        the input file and inspect source content. The hook preview updates
-        after rendering.
+        the input file and inspect source content. Click Preview Hook to check
+        the full edit with effects and music before final rendering.
       </div>
 
       <h2>Highlight Editor</h2>
@@ -407,6 +407,14 @@
           <tr>
             <td>Save</td>
             <td>Saves your edited project settings and highlight list.</td>
+          </tr>
+          <tr>
+            <td>Preview Hook</td>
+            <td>
+              Generates a managed preview file using the current highlights,
+              effects, music, color boost, and export settings, then loads it
+              into the Hook player.
+            </td>
           </tr>
           <tr>
             <td>Render Final Hook</td>

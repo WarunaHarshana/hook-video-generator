@@ -5,6 +5,7 @@ const state = {
   pollTimer: null,
   jobEvents: null,
   previewStopTimer: null,
+  hookVideoSource: "output",
   pendingOutputAspectRatio: null,
   pendingAutoReframe: null,
   musicFileDuration: null,
@@ -64,6 +65,7 @@ const els = {
   sourceFullscreenBtn: document.querySelector("#sourceFullscreenBtn"),
   outputFullscreenBtn: document.querySelector("#outputFullscreenBtn"),
   addHighlightBtn: document.querySelector("#addHighlightBtn"),
+  previewHookBtn: document.querySelector("#previewHookBtn"),
   renderFinalBtn: document.querySelector("#renderFinalBtn"),
   saveProjectBtn: document.querySelector("#saveProjectBtn"),
   highlightRows: document.querySelector("#highlightRows"),
@@ -158,6 +160,7 @@ const setBusy = (busy) => {
   els.concurrency.disabled = busy;
   els.renderTimeout.disabled = busy;
   els.saveProjectBtn.disabled = busy || !state.project;
+  els.previewHookBtn.disabled = busy || !state.project;
   els.renderFinalBtn.disabled = busy || !state.project;
   els.clearWorkspaceBtn.disabled = busy;
   els.clearAfterRender.disabled = busy;
@@ -565,6 +568,7 @@ const openFullscreen = async (video) => {
 const resetProjectForNewSource = (src) => {
   state.project = null;
   state.thumbnails = [];
+  state.hookVideoSource = "output";
   els.sourcePath.value = src;
   els.titleText.value = "";
   els.uploadStatus.textContent = src ? "Using original file path" : "";
@@ -612,6 +616,7 @@ const clearWorkspace = async ({skipConfirm = false} = {}) => {
     state.project = data.project;
     state.thumbnails = data.thumbnails || [];
     state.activeJob = data.activeJob;
+    state.hookVideoSource = "output";
     renderProject(data);
     setStatus("Cleared", "done");
     setProgress(100, "Workspace cleared");
@@ -660,16 +665,25 @@ const updateVideoSources = (serverState = {}) => {
     els.sourceVideo.style.aspectRatio = "";
   }
 
-  const outputPath = els.outputPath.value.trim() || serverState.outputPath;
-  const shouldShowOutput =
-    Boolean(state.project) &&
-    (serverState.outputExists || state.activeJob?.result?.outputExists);
+  const finalOutputPath = els.outputPath.value.trim() || serverState.outputPath;
+  const previewPath = serverState.previewPath || state.activeJob?.result?.previewPath;
+  const showPreview =
+    state.hookVideoSource === "preview" &&
+    Boolean(previewPath) &&
+    Boolean(serverState.previewExists || state.activeJob?.result?.previewExists);
+  const shouldShowOutput = Boolean(state.project) &&
+    (showPreview ||
+      serverState.outputExists ||
+      state.activeJob?.result?.outputExists);
+  const outputPath = showPreview ? previewPath : finalOutputPath;
 
-  if (shouldShowOutput) {
+  if (shouldShowOutput && outputPath) {
     setVideoSource(els.outputVideo, `/api/video?path=${encodeURIComponent(
       outputPath,
     )}&t=${Date.now()}`);
-    els.outputMeta.textContent = `${state.project.width}x${state.project.height}`;
+    els.outputMeta.textContent = showPreview
+      ? `Preview ${state.project.width}x${state.project.height}`
+      : `${state.project.width}x${state.project.height}`;
     els.outputVideo.style.aspectRatio = `${state.project.width} / ${state.project.height}`;
   } else {
     clearVideo(els.outputVideo);
@@ -860,7 +874,31 @@ const startRender = async () => {
     }),
   });
   state.activeJob = job;
+  state.hookVideoSource = "output";
   setStatus("Render", "running");
+  setProgress(job.progress, job.phase);
+  followJob(job.id);
+};
+
+const startPreview = async () => {
+  readRowsIntoProject();
+  await api("/api/project", {
+    method: "POST",
+    body: JSON.stringify(state.project),
+  });
+  els.processNote.textContent = "Generating hook preview with current effects and music...";
+  const job = await api("/api/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      renderMode: els.renderMode.value,
+      gl: els.glMode.value,
+      concurrency: Number(els.concurrency.value),
+      renderTimeoutMinutes: Number(els.renderTimeout.value),
+    }),
+  });
+  state.activeJob = job;
+  state.hookVideoSource = "preview";
+  setStatus("Preview", "running");
   setProgress(job.progress, job.phase);
   followJob(job.id);
 };
@@ -940,6 +978,26 @@ const applyJobUpdate = async (job, options = {}) => {
       ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`
       : "Strongest music section selected for the final hook.";
     return;
+  }
+
+  if (job.kind === "preview") {
+    state.hookVideoSource = "preview";
+    els.processNote.textContent = "Preview ready in the Hook player";
+    updateVideoSources({
+      ...data,
+      previewExists: job.result?.previewExists ?? data.previewExists,
+      previewPath: job.result?.previewPath ?? data.previewPath,
+    });
+    return;
+  }
+
+  if (job.kind === "render") {
+    state.hookVideoSource = "output";
+    updateVideoSources({
+      ...data,
+      outputExists: job.result?.outputExists ?? data.outputExists,
+      outputPath: job.result?.outputPath ?? data.outputPath,
+    });
   }
 
   if (job.kind === "analyze" && options.generatePreviewsAfterAnalyze) {
@@ -1427,6 +1485,13 @@ els.saveProjectBtn.addEventListener("click", async () => {
 
 els.renderFinalBtn.addEventListener("click", () => {
   startRender().catch((error) => {
+    setStatus("Failed", "failed");
+    els.processNote.textContent = error.message;
+  });
+});
+
+els.previewHookBtn.addEventListener("click", () => {
+  startPreview().catch((error) => {
     setStatus("Failed", "failed");
     els.processNote.textContent = error.message;
   });

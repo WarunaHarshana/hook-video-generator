@@ -99,7 +99,7 @@ type JobStatus = "running" | "cancelling" | "cancelled" | "done" | "failed";
 
 type Job = {
   id: string;
-  kind: "analyze" | "render" | "music";
+  kind: "analyze" | "render" | "music" | "preview";
   status: JobStatus;
   progress: number;
   phase: string;
@@ -112,7 +112,7 @@ type Job = {
   child: ChildProcessWithoutNullStreams;
 };
 
-type ManifestKind = "project" | "upload" | "thumbnail";
+type ManifestKind = "project" | "upload" | "thumbnail" | "preview";
 
 type WorkspaceManifestEntry = {
   path: string;
@@ -133,6 +133,7 @@ const tempDir = path.join(rootDir, ".tmp");
 const projectPath = path.join(rootDir, "project.json");
 const manifestPath = path.join(rootDir, ".hook-workspace-manifest.json");
 const defaultOutputPath = path.join(rootDir, "hook.mp4");
+const previewPath = path.join(tempDir, "hook-preview.mp4");
 const tsxCli = path.join(rootDir, "node_modules", "tsx", "dist", "cli.mjs");
 const jobs = new Map<string, Job>();
 const jobClients = new Map<string, Set<ServerResponse>>();
@@ -451,12 +452,18 @@ const isManagedWorkspacePath = (filePath: string) => {
   return (
     samePath(resolved, projectPath) ||
     isInsideDirectory(resolved, uploadsDir) ||
-    isInsideDirectory(resolved, thumbnailsDir)
+    isInsideDirectory(resolved, thumbnailsDir) ||
+    isInsideDirectory(resolved, tempDir)
   );
 };
 
 const isManifestKind = (kind: unknown): kind is ManifestKind => {
-  return kind === "project" || kind === "upload" || kind === "thumbnail";
+  return (
+    kind === "project" ||
+    kind === "upload" ||
+    kind === "thumbnail" ||
+    kind === "preview"
+  );
 };
 
 const readManifestEntry = (entry: unknown): WorkspaceManifestEntry | null => {
@@ -664,7 +671,7 @@ const clearWorkspace = async () => {
 
   const cleanup = await cleanupManifestFiles({
     keepCurrentUpload: false,
-    kinds: ["project", "upload", "thumbnail"],
+    kinds: ["project", "upload", "thumbnail", "preview"],
   });
 
   return {
@@ -1140,7 +1147,9 @@ const startJob = ({
         ? "Preparing analysis"
         : kind === "music"
           ? "Preparing music analysis"
-          : "Preparing render",
+          : kind === "preview"
+            ? "Preparing preview"
+            : "Preparing render",
     logs: "",
     startedAt: new Date().toISOString(),
     child,
@@ -1167,7 +1176,9 @@ const startJob = ({
           ? "Analysis complete"
           : kind === "music"
             ? "Music analysis complete"
-            : "Render complete";
+            : kind === "preview"
+              ? "Preview complete"
+              : "Render complete";
       try {
         job.result = await result();
       } catch (error) {
@@ -1279,6 +1290,8 @@ const routeApi = async (
       projectPath,
       outputPath: lastOutputPath,
       outputExists: existsSync(lastOutputPath),
+      previewPath,
+      previewExists: existsSync(previewPath),
       activeJobId,
       activeJob: activeJobId ? publicJob(jobs.get(activeJobId)!) : null,
     });
@@ -1570,6 +1583,60 @@ const routeApi = async (
           outputPath,
           outputExists: existsSync(outputPath),
         }),
+      }),
+    );
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/preview") {
+    const body = await parseBody<{
+      gl?: string;
+      concurrency?: number;
+      renderMode?: string;
+      renderTimeoutMinutes?: number;
+    }>(req);
+    await mkdir(tempDir, {recursive: true});
+    const args = [
+      "--project",
+      projectPath,
+      "--out",
+      previewPath,
+      "--render-mode",
+      body.renderMode?.trim() || "auto",
+    ];
+
+    if (body.gl?.trim()) {
+      args.push("--gl", body.gl.trim());
+    }
+
+    if (body.concurrency) {
+      args.push("--concurrency", String(body.concurrency));
+    }
+
+    if (body.renderTimeoutMinutes) {
+      args.push(
+        "--timeout-minutes",
+        String(normalizeNumber(body.renderTimeoutMinutes, 5)),
+      );
+    }
+
+    sendJson(
+      res,
+      202,
+      startJob({
+        kind: "preview",
+        script: "scripts/render.ts",
+        args,
+        result: async () => {
+          if (existsSync(previewPath)) {
+            await registerCreatedFile(previewPath, "preview");
+          }
+
+          return {
+            previewPath,
+            previewExists: existsSync(previewPath),
+          };
+        },
       }),
     );
     return;
