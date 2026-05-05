@@ -35,6 +35,40 @@ export type BeatEvent = {
   strength: number;
 };
 
+export type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
+export type MusicTempo = "slow" | "medium" | "fast";
+export type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
+export type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+
+export type MusicSection = {
+  start: number;
+  end: number;
+  type: MusicSectionType;
+  energy: number;
+  density: number;
+};
+
+export type MusicCutPoint = {
+  time: number;
+  strength: number;
+  sectionType?: MusicSectionType;
+};
+
+export type MusicEffectEvent = {
+  time: number;
+  type: MusicEffectEventType;
+  strength: number;
+  duration: number;
+};
+
+export type MusicEditPlan = {
+  tempo: MusicTempo;
+  energyCurve: MusicEnergyCurve;
+  sections: MusicSection[];
+  cutPoints: MusicCutPoint[];
+  effectEvents: MusicEffectEvent[];
+};
+
 export type BeatSyncSettings = {
   enabled: boolean;
   intensity: BeatSyncIntensity;
@@ -53,6 +87,7 @@ export type MusicSettings = {
   beats?: number[];
   beatEvents?: BeatEvent[];
   beatSync?: BeatSyncSettings;
+  editPlan?: MusicEditPlan;
 };
 
 export type HookVideoInputProps = {
@@ -163,6 +198,135 @@ const beatStrengthAt = (music: MusicSettings | undefined, timelineSeconds: numbe
   return clamp(closest.strength, 0.18, 1);
 };
 
+const musicTimelineTime = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+) => {
+  if (!music?.enabled || !music.src) {
+    return null;
+  }
+
+  const duration = Math.max(0.1, Number(music.duration) || 0.1);
+  if (music.editPlan?.cutPoints?.length || music.editPlan?.effectEvents?.length) {
+    return clamp(timelineSeconds, 0, duration);
+  }
+
+  return Math.max(0, Number(music.start) || 0) + timelineSeconds;
+};
+
+const sectionAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+) => {
+  const time = musicTimelineTime(music, timelineSeconds);
+  if (time === null || !music?.editPlan?.sections?.length) {
+    return undefined;
+  }
+
+  return music.editPlan.sections.find(
+    (section) => time >= Number(section.start) && time < Number(section.end),
+  ) ?? music.editPlan.sections.at(-1);
+};
+
+const sectionEnergyAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+) => {
+  return clamp(Number(sectionAt(music, timelineSeconds)?.energy) || 0.5, 0.18, 1);
+};
+
+const planStrengthAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+) => {
+  if (!music?.editPlan) {
+    return beatStrengthAt(music, timelineSeconds);
+  }
+
+  const beatStrength = beatStrengthAt(music, timelineSeconds);
+  const sectionEnergy = sectionEnergyAt(music, timelineSeconds);
+  const eventStrength = Math.max(
+    effectEventPulseAt(music, timelineSeconds, ["pulse"]),
+    effectEventPulseAt(music, timelineSeconds, ["impact"]),
+  );
+
+  return clamp(beatStrength * 0.42 + sectionEnergy * 0.36 + eventStrength * 0.32, 0.18, 1);
+};
+
+const planPaceAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+): EffectPace => {
+  const section = sectionAt(music, timelineSeconds);
+
+  if (section?.type === "drop") {
+    return "fast";
+  }
+
+  if (section?.type === "build") {
+    return section.density >= 0.52 ? "fast" : "medium";
+  }
+
+  if (section?.type === "intro" || section?.type === "outro") {
+    return "slow";
+  }
+
+  if (section?.density && section.density >= 0.62) {
+    return "fast";
+  }
+
+  if (section?.density && section.density <= 0.22) {
+    return "slow";
+  }
+
+  return effectPaceAt(music, timelineSeconds);
+};
+
+const effectEventPulseAt = (
+  music: MusicSettings | undefined,
+  timelineSeconds: number,
+  types: MusicEffectEventType[],
+) => {
+  const time = musicTimelineTime(music, timelineSeconds);
+  if (time === null || !music?.editPlan?.effectEvents?.length) {
+    return 0;
+  }
+
+  return music.editPlan.effectEvents.reduce((strongest, event) => {
+    if (!types.includes(event.type)) {
+      return strongest;
+    }
+
+    const duration = Math.max(0.08, Number(event.duration) || 0.18);
+    const distance = Math.abs(time - Number(event.time));
+    if (distance > duration) {
+      return strongest;
+    }
+
+    const pulse = interpolate(distance, [0, duration], [1, 0], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: Easing.out(Easing.cubic),
+    });
+
+    return Math.max(strongest, pulse * clamp(Number(event.strength) || 0, 0, 1));
+  }, 0);
+};
+
+const uniqueSortedBoundaries = (boundaries: number[]) => {
+  return boundaries
+    .filter((boundary) => Number.isFinite(boundary))
+    .sort((a, b) => a - b)
+    .reduce<number[]>((selected, boundary) => {
+      const previous = selected.at(-1);
+      if (previous === undefined || Math.abs(previous - boundary) > 0.05) {
+        selected.push(boundary);
+      }
+
+      return selected;
+    }, []);
+};
+
 const effectPaceAt = (
   music: MusicSettings | undefined,
   timelineSeconds: number,
@@ -210,13 +374,9 @@ export const buildBeatSyncedHighlights = (
   highlights: HighlightSegment[],
   music?: MusicSettings,
 ): HighlightSegment[] => {
-  const enabled = Boolean(
-    music?.enabled &&
-      music.src &&
-      music.beatSync?.enabled &&
-      Array.isArray(music.beats) &&
-      music.beats.length >= 2,
-  );
+  const hasEditPlan = Boolean(music?.editPlan?.cutPoints?.length);
+  const hasBeats = Boolean(Array.isArray(music?.beats) && music.beats.length >= 2);
+  const enabled = Boolean(music?.enabled && music.src && music.beatSync?.enabled && (hasEditPlan || hasBeats));
 
   if (!enabled || !music) {
     return highlights;
@@ -228,16 +388,21 @@ export const buildBeatSyncedHighlights = (
   const targetDuration = Math.min(totalSeconds, musicDuration);
   const config = beatSyncConfig(music.beatSync?.intensity ?? "tight");
   const beats = music.beats ?? [];
-  const relativeBeats = beats
-    .map((beat) => Number(beat) - musicStart)
-    .filter((beat) => Number.isFinite(beat) && beat > 0.08 && beat < targetDuration - 0.08)
-    .sort((a, b) => a - b);
+  const plannedCuts = (music.editPlan?.cutPoints ?? [])
+    .map((cut) => Number(cut.time))
+    .filter((cut) => Number.isFinite(cut) && cut > 0.08 && cut < targetDuration - 0.08);
+  const relativeBeats = plannedCuts.length >= 2
+    ? plannedCuts
+    : beats
+        .map((beat) => Number(beat) - musicStart)
+        .filter((beat) => Number.isFinite(beat) && beat > 0.08 && beat < targetDuration - 0.08)
+        .sort((a, b) => a - b);
 
-  if (relativeBeats.length < 2 || highlights.length === 0) {
+  if (relativeBeats.length < 1 || highlights.length === 0) {
     return highlights;
   }
 
-  const boundaries = [0, ...relativeBeats, targetDuration];
+  const boundaries = uniqueSortedBoundaries([0, ...relativeBeats, targetDuration]);
   const synced: HighlightSegment[] = [];
   let cursor = 0;
   let boundaryIndex = 1;
@@ -323,8 +488,8 @@ const buildTimeline = (
   const hasTempoMap = Boolean(
     music?.enabled &&
       music.src &&
-      Array.isArray(music.beats) &&
-      music.beats.length >= 2,
+      ((Array.isArray(music.beats) && music.beats.length >= 2) ||
+        music.editPlan?.sections?.length),
   );
   const totalFrames = syncedHighlights.reduce((sum, highlight) => {
     return sum + Math.max(1, secondsToFrames(highlight.duration, fps));
@@ -346,14 +511,14 @@ const buildTimeline = (
         from: cursor,
         durationInFrames,
         effectStrength: hasTempoMap
-          ? beatStrengthAt(music, timelineSeconds)
+          ? planStrengthAt(music, timelineSeconds)
           : fallbackPace === "fast"
             ? 0.62
             : fallbackPace === "medium"
               ? 0.44
               : 0.28,
         effectPace: hasTempoMap
-          ? effectPaceAt(music, timelineSeconds)
+          ? planPaceAt(music, timelineSeconds)
           : fallbackPace,
       };
 
@@ -698,6 +863,48 @@ const EffectOverlay: React.FC<{
   return null;
 };
 
+const MusicReactiveOverlay: React.FC<{
+  flashPulse: number;
+  impactPulse: number;
+  whipPulse: number;
+  sectionEnergy: number;
+}> = ({flashPulse, impactPulse, whipPulse, sectionEnergy}) => {
+  const visiblePulse = Math.max(flashPulse, impactPulse, whipPulse);
+
+  if (visiblePulse <= 0.01) {
+    return null;
+  }
+
+  return (
+    <>
+      <AbsoluteFill
+        style={{
+          backgroundColor: "#fff",
+          opacity: flashPulse * 0.075,
+          pointerEvents: "none",
+        }}
+      />
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(circle at 50% 52%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.02) 26%, rgba(0,0,0,0.48) 100%)",
+          opacity: impactPulse * (0.2 + sectionEnergy * 0.32),
+          pointerEvents: "none",
+        }}
+      />
+      <AbsoluteFill
+        style={{
+          background:
+            "repeating-linear-gradient(100deg, rgba(255,255,255,0) 0 22px, rgba(255,255,255,0.16) 22px 24px)",
+          mixBlendMode: "screen",
+          opacity: whipPulse * 0.18,
+          pointerEvents: "none",
+        }}
+      />
+    </>
+  );
+};
+
 const SourceClip: React.FC<{
   clip: ClipWithTiming;
   src: string;
@@ -706,6 +913,7 @@ const SourceClip: React.FC<{
   sourceVolume: number;
   effectPreset: EffectPreset;
   colorEnhancement: ColorEnhancement;
+  music?: MusicSettings;
 }> = ({
   clip,
   src,
@@ -714,6 +922,7 @@ const SourceClip: React.FC<{
   sourceVolume,
   effectPreset,
   colorEnhancement,
+  music,
 }) => {
   const frame = useCurrentFrame();
   const {fps, width, height} = useVideoConfig();
@@ -735,7 +944,20 @@ const SourceClip: React.FC<{
     resolvedPreset,
     clip.effectStrength,
   );
-  const styledPulse = effectPreset === "slow-fast-mix" ? pulse * 0.45 : pulse;
+  const timelineSeconds = (clip.from + frame) / fps;
+  const musicPulse = effectEventPulseAt(music, timelineSeconds, ["pulse"]);
+  const flashPulse = effectEventPulseAt(music, timelineSeconds, ["flash"]);
+  const impactPulse = effectEventPulseAt(music, timelineSeconds, ["impact"]);
+  const whipPulse = effectEventPulseAt(music, timelineSeconds, ["whip"]);
+  const sectionEnergy = sectionEnergyAt(music, timelineSeconds);
+  const reactivePulse = Math.max(
+    pulse,
+    musicPulse * 0.68,
+    flashPulse * 0.7,
+    impactPulse,
+    whipPulse * 0.82,
+  );
+  const styledPulse = effectPreset === "slow-fast-mix" ? reactivePulse * 0.45 : reactivePulse;
   const playbackRate = effectPlaybackRate(
     effectPreset,
     resolvedPreset,
@@ -814,7 +1036,7 @@ const SourceClip: React.FC<{
   const shakeAmount =
     autoReframe && shakePreset > 0
       ? Math.sin(frame * 2.1 + index) *
-        styledPulse *
+        Math.max(styledPulse, impactPulse * 1.15, whipPulse * 0.72) *
         Math.max(2, width * 0.0038) *
         (0.5 + clip.effectStrength * 0.55) *
         shakePreset
@@ -867,6 +1089,12 @@ const SourceClip: React.FC<{
         preset={resolvedPreset}
         requestedPreset={effectPreset}
         effectStrength={clip.effectStrength}
+      />
+      <MusicReactiveOverlay
+        flashPulse={flashPulse}
+        impactPulse={impactPulse}
+        whipPulse={whipPulse}
+        sectionEnergy={sectionEnergy}
       />
     </AbsoluteFill>
   );
@@ -1035,6 +1263,7 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
             sourceVolume={sourceVolume}
             effectPreset={effectPreset}
             colorEnhancement={colorEnhancement}
+            music={activeMusic || undefined}
           />
         </Sequence>
       ))}

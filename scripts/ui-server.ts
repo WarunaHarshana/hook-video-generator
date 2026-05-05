@@ -21,6 +21,10 @@ type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
 type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
+type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
+type MusicTempo = "slow" | "medium" | "fast";
+type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
+type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
 type EffectPreset =
   | "clean"
   | "auto"
@@ -58,6 +62,35 @@ type BeatSyncSettings = {
   intensity: BeatSyncIntensity;
 };
 
+type MusicSection = {
+  start: number;
+  end: number;
+  type: MusicSectionType;
+  energy: number;
+  density: number;
+};
+
+type MusicCutPoint = {
+  time: number;
+  strength: number;
+  sectionType?: MusicSectionType;
+};
+
+type MusicEffectEvent = {
+  time: number;
+  type: MusicEffectEventType;
+  strength: number;
+  duration: number;
+};
+
+type MusicEditPlan = {
+  tempo: MusicTempo;
+  energyCurve: MusicEnergyCurve;
+  sections: MusicSection[];
+  cutPoints: MusicCutPoint[];
+  effectEvents: MusicEffectEvent[];
+};
+
 type MusicSettings = {
   src: string;
   start: number;
@@ -71,6 +104,7 @@ type MusicSettings = {
   beats?: number[];
   beatEvents?: BeatEvent[];
   beatSync?: BeatSyncSettings;
+  editPlan?: MusicEditPlan;
   detected?: {
     score?: number;
     audioDuration?: number;
@@ -251,6 +285,26 @@ const beatSyncIntensities = new Set<BeatSyncIntensity>([
   "tight",
   "fast",
 ]);
+const musicSectionTypes = new Set<MusicSectionType>([
+  "intro",
+  "verse",
+  "build",
+  "drop",
+  "outro",
+]);
+const musicTempos = new Set<MusicTempo>(["slow", "medium", "fast"]);
+const musicEnergyCurves = new Set<MusicEnergyCurve>([
+  "steady",
+  "slow-to-fast",
+  "fast-to-slow",
+  "mixed",
+]);
+const musicEffectEventTypes = new Set<MusicEffectEventType>([
+  "pulse",
+  "flash",
+  "impact",
+  "whip",
+]);
 
 const normalizeOutputAspectRatio = (value: unknown): OutputAspectRatio => {
   return typeof value === "string" && outputAspectRatios.has(value as OutputAspectRatio)
@@ -283,9 +337,88 @@ const normalizeBeatSyncIntensity = (value: unknown): BeatSyncIntensity => {
     : "tight";
 };
 
+const normalizeMusicSectionType = (value: unknown): MusicSectionType => {
+  return typeof value === "string" && musicSectionTypes.has(value as MusicSectionType)
+    ? (value as MusicSectionType)
+    : "verse";
+};
+
+const normalizeMusicTempo = (value: unknown): MusicTempo => {
+  return typeof value === "string" && musicTempos.has(value as MusicTempo)
+    ? (value as MusicTempo)
+    : "medium";
+};
+
+const normalizeMusicEnergyCurve = (value: unknown): MusicEnergyCurve => {
+  return typeof value === "string" && musicEnergyCurves.has(value as MusicEnergyCurve)
+    ? (value as MusicEnergyCurve)
+    : "steady";
+};
+
+const normalizeMusicEffectEventType = (value: unknown): MusicEffectEventType => {
+  return typeof value === "string" &&
+    musicEffectEventTypes.has(value as MusicEffectEventType)
+    ? (value as MusicEffectEventType)
+    : "pulse";
+};
+
 const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
   const parsed = normalizeNumber(value, fallback);
   return Math.min(Math.max(parsed, min), max);
+};
+
+const normalizeMusicEditPlan = (value: unknown): MusicEditPlan | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as Partial<MusicEditPlan>;
+  const sections = Array.isArray(input.sections)
+    ? input.sections
+        .map((section) => ({
+          start: Math.max(0, normalizeNumber(section?.start, 0)),
+          end: Math.max(0, normalizeNumber(section?.end, 0)),
+          type: normalizeMusicSectionType(section?.type),
+          energy: clampNumber(section?.energy, 0, 1, 0.5),
+          density: clampNumber(section?.density, 0, 1, 0.5),
+        }))
+        .filter((section) => section.end > section.start)
+    : [];
+  const cutPoints = Array.isArray(input.cutPoints)
+    ? input.cutPoints
+        .map((cut) => ({
+          time: Math.max(0, normalizeNumber(cut?.time, 0)),
+          strength: clampNumber(cut?.strength, 0, 1, 0.5),
+          sectionType: cut?.sectionType
+            ? normalizeMusicSectionType(cut.sectionType)
+            : undefined,
+        }))
+        .sort((a, b) => a.time - b.time)
+        .slice(0, 160)
+    : [];
+  const effectEvents = Array.isArray(input.effectEvents)
+    ? input.effectEvents
+        .map((event) => ({
+          time: Math.max(0, normalizeNumber(event?.time, 0)),
+          type: normalizeMusicEffectEventType(event?.type),
+          strength: clampNumber(event?.strength, 0, 1, 0.5),
+          duration: clampNumber(event?.duration, 0.05, 2, 0.25),
+        }))
+        .sort((a, b) => a.time - b.time)
+        .slice(0, 320)
+    : [];
+
+  if (sections.length === 0 && cutPoints.length === 0 && effectEvents.length === 0) {
+    return undefined;
+  }
+
+  return {
+    tempo: normalizeMusicTempo(input.tempo),
+    energyCurve: normalizeMusicEnergyCurve(input.energyCurve),
+    sections,
+    cutPoints,
+    effectEvents,
+  };
 };
 
 const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
@@ -328,6 +461,7 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
       enabled: Boolean(beatSync?.enabled),
       intensity: normalizeBeatSyncIntensity(beatSync?.intensity),
     },
+    editPlan: normalizeMusicEditPlan(input.editPlan),
     detected: input.detected,
   };
 };
@@ -393,6 +527,8 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
   const musicReason = music?.detected?.effectReason?.trim();
   const beatStyle = music?.detected?.suggestedBeatStyle;
   const paceShift = normalizeNumber(music?.detected?.paceShift, 0);
+  const editCurve = music?.editPlan?.energyCurve;
+  const editTempo = music?.editPlan?.tempo;
   const videoEnergy = normalizeNumber(video?.energyScore, 0.45);
   const motion = normalizeNumber(video?.motionScore, 0.45);
   const shotDensity = normalizeNumber(video?.shotDensityScore, 0.45);
@@ -400,20 +536,23 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
   const face = normalizeNumber(video?.faceScore, 0.45);
   const dialogueFocus = Math.min(Math.max(dialogue * 0.68 + face * 0.32, 0), 1);
 
-  if (music?.detected?.suggestedEffectPreset) {
+  if (music?.detected?.suggestedEffectPreset || music?.editPlan) {
     if (
       musicEffect === "slow-fast-mix" ||
+      editCurve === "slow-to-fast" ||
       (paceShift >= 0.18 && beatStyle === "fast")
     ) {
       return {
         preset: "slow-fast-mix",
         source: "video+music",
-        confidence: 0.88,
-        reason: musicReason || "music builds from slower spacing into faster beats",
+        confidence: editCurve === "slow-to-fast" ? 0.92 : 0.88,
+        reason:
+          musicReason ||
+          "music director found a slow-to-fast energy curve",
       };
     }
 
-    if (musicEffect === "fast-kinetic" || beatStyle === "fast") {
+    if (musicEffect === "fast-kinetic" || beatStyle === "fast" || editTempo === "fast") {
       return {
         preset: motion >= 0.5 || shotDensity >= 0.5 ? "fast-kinetic" : "beat-punch",
         source: "video+music",
@@ -425,7 +564,7 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
       };
     }
 
-    if (musicEffect === "smooth-slow" || beatStyle === "loose") {
+    if (musicEffect === "smooth-slow" || beatStyle === "loose" || editTempo === "slow") {
       return {
         preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-slow" : "auto",
         source: "video+music",
@@ -1727,7 +1866,9 @@ const routeApi = async (
           const music = {
             ...analyzedMusic,
             beatSync: {
-              enabled: Boolean(currentProject.music?.beatSync?.enabled),
+              enabled: currentProject.music?.beatSync
+                ? Boolean(currentProject.music.beatSync.enabled)
+                : true,
               intensity: analyzedMusic.beatSync?.intensity ?? "tight",
             },
           };

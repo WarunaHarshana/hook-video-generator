@@ -259,8 +259,8 @@
       </p>
       <p>
         The app can also analyze a local music file, find a strong section,
-        detect beats, auto-select a beat style, and cut highlights to that
-        rhythm.
+        detect beats, build a Music Director plan, auto-select a beat style,
+        and cut highlights to that rhythm.
       </p>
 
       <div class="figure">
@@ -428,7 +428,8 @@
       <h2>Music Controls</h2>
       <p>
         Music is optional. If you add it, the app can analyze the music file,
-        choose a strong section, detect beats, and help cut highlights on rhythm.
+        choose a strong section, detect beats, build a Music Director plan,
+        and help cut highlights on rhythm.
       </p>
       <div class="figure">
         <img src="assets/ui-music-clean.png" alt="Music controls" />
@@ -455,7 +456,10 @@
           </tr>
           <tr>
             <td>Analyze Music</td>
-            <td>Measures the music, finds a strong section, detects beats, and suggests beat style.</td>
+            <td>
+              Measures the music, finds a strong section, detects beats,
+              suggests beat style, and builds the Music Director plan.
+            </td>
           </tr>
           <tr>
             <td>Full music file player</td>
@@ -491,7 +495,10 @@
           </tr>
           <tr>
             <td>Cut highlights to music beats</td>
-            <td>Changes clip durations so highlight cuts land on detected beats.</td>
+            <td>
+              Changes clip durations so highlight cuts land on Music Director
+              cut points from detected beats, section energy, and tempo.
+            </td>
           </tr>
           <tr>
             <td>Beat style</td>
@@ -502,6 +509,14 @@
           </tr>
         </tbody>
       </table>
+
+      <h3>Music Director</h3>
+      <p>
+        After music analysis, the Music Director summarizes the song tempo,
+        energy curve, section flow, cut points, and effect hits. Sections such as
+        intro, build, and drop help the renderer keep slow parts calmer and make
+        faster parts more energetic.
+      </p>
 
       <h3>Beat Style Meaning</h3>
       <table>
@@ -563,9 +578,10 @@
             <td>Effects</td>
             <td>
               Selects visual cut effects. Auto director chooses slower,
-              punchier, or faster motion based on detected music beat strength
-              and local tempo. The app recommends this field automatically
-              after hook analysis and refines it after music analysis.
+              punchier, or faster motion based on the Music Director plan,
+              detected beat strength, and local tempo. The app recommends this
+              field automatically after hook analysis and refines it after music
+              analysis.
             </td>
           </tr>
           <tr>
@@ -647,8 +663,9 @@
           <tr>
             <td>Auto director</td>
             <td>
-              Uses analyzed beat strength and local music pace to choose
-              between slow motion, beat punch, and kinetic whip moments.
+              Uses the Music Director plan, beat strength, and local music pace
+              to choose between slow motion, beat punch, impact, and kinetic
+              whip moments.
             </td>
           </tr>
           <tr>
@@ -669,8 +686,9 @@
             <td>Slow-fast ramp</td>
             <td>
               Follows songs that build from slow to fast, moving from slower
-              playback into punchier and faster kinetic moments. If no music is
-              analyzed, it still uses a gentle beginning-to-end ramp.
+              playback into punchier and faster kinetic moments using the
+              detected energy curve. If no music is analyzed, it still uses a
+              gentle beginning-to-end ramp.
             </td>
           </tr>
           <tr>

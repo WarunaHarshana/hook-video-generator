@@ -25,9 +25,11 @@ A full PDF guide with screenshots is included:
 - Analyze music to find a strong section automatically.
 - Listen to the full music file and the analyzed music section.
 - Automatically detect beats in the music.
+- Build a Music Director plan with tempo, energy sections, cut points, and effect hits.
 - Auto-select beat style based on the music rhythm.
 - Auto-recommend the visual effect from video motion/dialogue signals and music beat analysis.
 - Cut highlights to music beats.
+- Make effects react to the analyzed music plan, including build/drop sections and stronger beat hits.
 - Control background music volume and original source audio volume.
 - Choose visual effects: clean cuts, auto director, slow motion, kinetic whip, slow-fast ramp, beat punch, flash cuts, or impact shake.
 - Add an HDR-style color boost to SDR video with natural or vivid modes.
@@ -80,13 +82,15 @@ If port `3210` is already in use, the app will show the next available URL in th
 ## Music And Beat Sync
 
 - `Analyze Music` finds a strong music section for the final hook duration.
+- After analysis, the Music Director reads the song as sections such as intro, verse, build, drop, and outro.
+- The Music Director creates cut points and effect hits from beat strength, section energy, and tempo.
 - `Beat style` is selected automatically after music analysis.
 - `Effects` is also recommended automatically after hook analysis, then refined after music analysis.
 - `Loose` creates slower, longer rhythm cuts.
 - `Tight` is the balanced default for most hooks.
 - `Fast` creates quicker cuts for dense, energetic beats.
-- `Auto director` effects use detected beat strength and local music pace to choose between slow motion, beat punch, and kinetic whip moments.
-- `Slow-fast ramp` starts with slower motion and builds toward faster kinetic movement when the music gets denser, with a fallback ramp even when no music is analyzed.
+- `Auto director` effects use the Music Director plan to choose between slow motion, beat punch, kinetic whip, and impact moments.
+- `Slow-fast ramp` follows songs that begin slower and build into faster sections.
 
 ## Export Options
 

@@ -261,6 +261,18 @@ select:focus {
   align-items: end;
 }
 
+.music-director {
+  min-height: 36px;
+  border-left: 3px solid rgba(43, 110, 181, 0.32);
+  padding: 8px 10px;
+  background: #f5f9ff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .music-status {
   min-height: 18px;
   color: var(--muted);

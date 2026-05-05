@@ -49,6 +49,7 @@ const els = {
   useEntireMusic: document.querySelector("#useEntireMusic"),
   beatSyncEnabled: document.querySelector("#beatSyncEnabled"),
   beatSyncIntensity: document.querySelector("#beatSyncIntensity"),
+  musicDirector: document.querySelector("#musicDirector"),
   musicStatus: document.querySelector("#musicStatus"),
   musicProgressPhase: document.querySelector("#musicProgressPhase"),
   musicProgressPercent: document.querySelector("#musicProgressPercent"),
@@ -414,7 +415,30 @@ const musicSummary = (music) => {
     : "";
   const style = music.detected?.suggestedBeatStyle || music.beatSync?.intensity;
   const styleText = style ? ` · ${style} style` : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}`;
+  const plan = music.editPlan;
+  const planText = plan
+    ? ` · ${plan.energyCurve || "steady"} · ${plan.cutPoints?.length || 0} cuts`
+    : "";
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${planText}`;
+};
+
+const musicDirectorSummary = (music) => {
+  const plan = music?.editPlan;
+
+  if (!plan) {
+    return "Analyze music to build a cut and effects plan.";
+  }
+
+  const sections = plan.sections || [];
+  const sectionText = sections.length
+    ? sections.map((section) => section.type).join(" → ")
+    : "sections pending";
+  const tempo = plan.tempo || "medium";
+  const curve = plan.energyCurve || "steady";
+  const cutCount = plan.cutPoints?.length || 0;
+  const eventCount = plan.effectEvents?.length || 0;
+
+  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. ${sectionText}.`;
 };
 
 const updateMusicPreview = () => {
@@ -426,6 +450,7 @@ const updateMusicPreview = () => {
     els.analyzedMusicPreview.dataset.sourcePath = "";
     state.musicFileDuration = null;
     els.musicStatus.textContent = "No music selected";
+    els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
     return;
   }
 
@@ -436,12 +461,14 @@ const updateMusicPreview = () => {
     els.analyzedMusicPreview.dataset.sourcePath = "";
     els.musicStatus.textContent =
       "YouTube links are not direct music files. Choose a local music file instead.";
+    els.musicDirector.textContent = "Music Director needs a local music file.";
     return;
   }
 
   setAudioPreviewSource(els.musicPreview, src);
   setAudioPreviewSource(els.analyzedMusicPreview, src);
   els.musicStatus.textContent = musicSummary(musicFromControls());
+  els.musicDirector.textContent = musicDirectorSummary(state.project?.music);
 };
 
 const renderMusicControls = (music) => {
@@ -469,6 +496,7 @@ const renderMusicControls = (music) => {
   } else {
     setMusicProgress(0, "Music ready");
   }
+  els.musicDirector.textContent = musicDirectorSummary(music);
 };
 
 const refreshMusicReadiness = () => {
@@ -505,6 +533,7 @@ const refreshMusicReadiness = () => {
       `Music selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`,
       100,
     );
+    els.musicDirector.textContent = musicDirectorSummary(state.project.music);
     return;
   }
 
@@ -513,6 +542,7 @@ const refreshMusicReadiness = () => {
     "Music selected. Click Analyze Music to find the strongest part.",
     0,
   );
+  els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
 };
 
 const syncRenderModeControls = () => {
@@ -1065,9 +1095,14 @@ const applyJobUpdate = async (job, options = {}) => {
     const effectText = recommendation
       ? ` Effect auto-selected: ${effectLabels[recommendation.preset] || recommendation.preset}.`
       : "";
+    const plan = state.project?.music?.editPlan;
+    const directorText = plan
+      ? ` Music Director created ${plan.cutPoints?.length || 0} cut points and ${plan.effectEvents?.length || 0} effect hits.`
+      : "";
     els.musicStatus.textContent = state.project?.music?.beats?.length
-      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.${effectText}`
-      : `Strongest music section selected for the final hook.${effectText}`;
+      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.${effectText}${directorText}`
+      : `Strongest music section selected for the final hook.${effectText}${directorText}`;
+    els.musicDirector.textContent = musicDirectorSummary(state.project?.music);
     return;
   }
 
@@ -1394,6 +1429,7 @@ els.removeMusicBtn.addEventListener("click", async () => {
   els.useEntireMusic.checked = false;
   els.beatSyncEnabled.checked = false;
   els.beatSyncIntensity.value = "tight";
+  els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
   setBusy(isActiveJob());
 });
 
