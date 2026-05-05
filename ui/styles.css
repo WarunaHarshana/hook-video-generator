@@ -767,6 +767,19 @@ tr:last-child td {
   background: #101820;
 }
 
+.thumb-stack {
+  display: grid;
+  gap: 6px;
+  width: 118px;
+}
+
+.thumb-meta {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: normal;
+}
+
 .thumb-button:hover,
 .thumb-placeholder:hover {
   border-color: var(--blue);

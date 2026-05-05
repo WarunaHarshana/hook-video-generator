@@ -17,6 +17,7 @@ A full PDF guide with screenshots is included:
 - Choose one source video from your computer.
 - Analyze the video to find hook-worthy highlight moments.
 - Review highlights with thumbnail previews.
+- See small per-highlight signal hints such as energy, motion, scene, dialogue, or beat strength.
 - Preview individual highlights before rendering.
 - Preview the full hook with effects and music before final render using a faster lower-resolution preview file.
 - Edit each highlight start time and duration.
@@ -30,6 +31,7 @@ A full PDF guide with screenshots is included:
 - Auto-select beat style based on the music rhythm.
 - Auto-recommend the visual effect from video motion/dialogue signals and music beat analysis.
 - Cut between different highlight moments on music beats.
+- Use highlight variety scoring so fast beat cuts avoid repeating visually similar moments when possible.
 - Auto-recommend edit energy: calm, balanced, or aggressive.
 - View a beat-edit timeline showing sections, cut roles, and effect hits.
 - Make effects react to the analyzed music plan, including build/drop sections and stronger beat hits.

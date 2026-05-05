@@ -22,7 +22,19 @@
   "highlights": [
     {
       "start": 8.5,
-      "duration": 3
+      "duration": 3,
+      "metadata": {
+        "motionScore": 0.72,
+        "shotDensityScore": 0.61,
+        "spikeScore": 0.58,
+        "dialogueScore": 0.32,
+        "faceScore": 0.28,
+        "sceneScore": 0.64,
+        "loudnessScore": 0.66,
+        "audioScore": 0.59,
+        "energyScore": 0.67,
+        "varietyKey": "motion|motion-high|scene-mid|talk-low"
+      }
     },
     {
       "start": 42,

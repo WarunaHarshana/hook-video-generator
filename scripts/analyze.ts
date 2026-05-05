@@ -6,9 +6,16 @@ import {promisify} from "node:util";
 import ffmpegPath from "ffmpeg-static";
 import {path as ffprobePath} from "ffprobe-static";
 
+type HighlightMetadata = VideoAnalysisSummary & {
+  loudnessScore: number;
+  audioScore: number;
+  varietyKey: string;
+};
+
 type HighlightSegment = {
   start: number;
   duration: number;
+  metadata?: HighlightMetadata;
 };
 
 type EffectPreset =
@@ -118,6 +125,61 @@ const progress = (percent: number, message: string) => {
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
+};
+
+const roundScore = (value: number) => {
+  return Number(clamp(value, 0, 1).toFixed(3));
+};
+
+const finiteScore = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const scoreLevel = (value: number) => {
+  if (value >= 0.66) {
+    return "high";
+  }
+
+  if (value <= 0.36) {
+    return "low";
+  }
+
+  return "mid";
+};
+
+const normalizeHighlightMetadata = (
+  value: HighlightSegment["metadata"],
+): HighlightMetadata | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const energyScore = roundScore(
+    Number.isFinite(Number(value.energyScore))
+      ? Number(value.energyScore)
+      : finiteScore(value.motionScore, 0.45) * 0.34 +
+          finiteScore(value.shotDensityScore, 0.45) * 0.24 +
+          finiteScore(value.spikeScore, 0.35) * 0.18 +
+          finiteScore(value.sceneScore, 0.45) * 0.12 +
+          (1 - finiteScore(value.dialogueScore, 0.45)) * 0.12,
+  );
+
+  return {
+    motionScore: roundScore(finiteScore(value.motionScore, 0.45)),
+    shotDensityScore: roundScore(finiteScore(value.shotDensityScore, 0.45)),
+    spikeScore: roundScore(finiteScore(value.spikeScore, 0.35)),
+    dialogueScore: roundScore(finiteScore(value.dialogueScore, 0.45)),
+    faceScore: roundScore(finiteScore(value.faceScore, 0.45)),
+    sceneScore: roundScore(finiteScore(value.sceneScore, 0.45)),
+    loudnessScore: roundScore(finiteScore(value.loudnessScore, 0.45)),
+    audioScore: roundScore(finiteScore(value.audioScore, 0.45)),
+    energyScore,
+    varietyKey:
+      typeof value.varietyKey === "string" && value.varietyKey.trim()
+        ? value.varietyKey.trim().slice(0, 80)
+        : `balanced-${scoreLevel(energyScore)}`,
+  };
 };
 
 const percentile = (values: number[], amount: number) => {
@@ -268,6 +330,7 @@ const loadHighlightsJson = async (highlightsPath: string) => {
     .map((highlight) => ({
       start: Number(highlight.start),
       duration: Number(highlight.duration),
+      metadata: normalizeHighlightMetadata(highlight.metadata),
     }))
     .filter(
       (highlight) =>
@@ -706,6 +769,43 @@ const scoreCandidates = async ({
   return scored;
 };
 
+const highlightMetadataFromCandidate = (candidate: HookCandidate): HighlightMetadata => {
+  const energyScore = roundScore(
+    candidate.motionScore * 0.34 +
+      candidate.shotDensityScore * 0.22 +
+      candidate.sceneScore * 0.16 +
+      candidate.spikeScore * 0.16 +
+      candidate.loudnessScore * 0.06 +
+      (1 - candidate.dialogueScore) * 0.06,
+  );
+  const focus =
+    candidate.dialogueScore >= 0.62 || candidate.faceScore >= 0.62
+      ? "dialogue"
+      : candidate.motionScore >= 0.62
+        ? "motion"
+        : candidate.sceneScore >= 0.55 || candidate.shotDensityScore >= 0.58
+          ? "scene"
+          : "balanced";
+
+  return {
+    motionScore: roundScore(candidate.motionScore),
+    shotDensityScore: roundScore(candidate.shotDensityScore),
+    spikeScore: roundScore(candidate.spikeScore),
+    dialogueScore: roundScore(candidate.dialogueScore),
+    faceScore: roundScore(candidate.faceScore),
+    sceneScore: roundScore(candidate.sceneScore),
+    loudnessScore: roundScore(candidate.loudnessScore),
+    audioScore: roundScore(candidate.audioScore),
+    energyScore,
+    varietyKey: [
+      focus,
+      `motion-${scoreLevel(candidate.motionScore)}`,
+      `scene-${scoreLevel(candidate.sceneScore)}`,
+      `talk-${scoreLevel(candidate.dialogueScore)}`,
+    ].join("|"),
+  };
+};
+
 const selectDiverseHighlights = ({
   candidates,
   clipDuration,
@@ -773,6 +873,7 @@ const selectDiverseHighlights = ({
     highlights: selectedCandidates.map((candidate) => ({
       start: Number(candidate.start.toFixed(3)),
       duration: Number(candidate.duration.toFixed(3)),
+      metadata: highlightMetadataFromCandidate(candidate),
     })),
     selectedCandidates,
   };

@@ -11,9 +11,23 @@ import {
   useVideoConfig,
 } from "remotion";
 
+export type HighlightMetadata = {
+  motionScore?: number;
+  shotDensityScore?: number;
+  spikeScore?: number;
+  dialogueScore?: number;
+  faceScore?: number;
+  sceneScore?: number;
+  loudnessScore?: number;
+  audioScore?: number;
+  energyScore?: number;
+  varietyKey?: string;
+};
+
 export type HighlightSegment = {
   start: number;
   duration: number;
+  metadata?: HighlightMetadata;
 };
 
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
@@ -379,6 +393,102 @@ type DirectorCut = {
   sectionType?: MusicSectionType;
 };
 
+const metadataScore = (
+  metadata: HighlightMetadata | undefined,
+  key: keyof HighlightMetadata,
+  fallback: number,
+) => {
+  const value = Number(metadata?.[key]);
+  return Number.isFinite(value) ? clamp(value, 0, 1) : fallback;
+};
+
+const sectionPrefersStory = (sectionType: MusicSectionType | undefined) => {
+  return sectionType === "intro" || sectionType === "verse" || sectionType === "outro";
+};
+
+const roleFitScore = (
+  metadata: HighlightMetadata | undefined,
+  beat: BeatDuration,
+) => {
+  const motion = metadataScore(metadata, "motionScore", 0.45);
+  const shotDensity = metadataScore(metadata, "shotDensityScore", 0.45);
+  const spike = metadataScore(metadata, "spikeScore", 0.35);
+  const dialogue = metadataScore(metadata, "dialogueScore", 0.45);
+  const face = metadataScore(metadata, "faceScore", 0.45);
+  const scene = metadataScore(metadata, "sceneScore", 0.45);
+  const loudness = metadataScore(metadata, "loudnessScore", 0.45);
+  const energy = metadataScore(
+    metadata,
+    "energyScore",
+    clamp(
+      motion * 0.34 +
+        shotDensity * 0.22 +
+        scene * 0.16 +
+        spike * 0.16 +
+        loudness * 0.06 +
+        (1 - dialogue) * 0.06,
+      0,
+      1,
+    ),
+  );
+  const story = clamp(dialogue * 0.62 + face * 0.38, 0, 1);
+
+  if (beat.role === "drop") {
+    return energy * 0.34 + motion * 0.28 + scene * 0.18 + spike * 0.14 + shotDensity * 0.06;
+  }
+
+  if (beat.role === "strong") {
+    return energy * 0.3 + spike * 0.24 + scene * 0.2 + motion * 0.18 + loudness * 0.08;
+  }
+
+  if (beat.role === "fill") {
+    return motion * 0.34 + shotDensity * 0.28 + scene * 0.16 + energy * 0.16 + spike * 0.06;
+  }
+
+  if (beat.role === "transition") {
+    return scene * 0.38 + shotDensity * 0.22 + energy * 0.2 + story * 0.2;
+  }
+
+  if (sectionPrefersStory(beat.sectionType)) {
+    return story * 0.4 + scene * 0.18 + energy * 0.18 + loudness * 0.14 + motion * 0.1;
+  }
+
+  if (beat.sectionType === "build") {
+    return energy * 0.3 + motion * 0.24 + shotDensity * 0.2 + scene * 0.16 + spike * 0.1;
+  }
+
+  return energy * 0.28 + scene * 0.22 + motion * 0.2 + story * 0.18 + spike * 0.12;
+};
+
+const metadataSimilarity = (
+  current: HighlightMetadata | undefined,
+  previous: HighlightMetadata | undefined,
+) => {
+  if (!current || !previous) {
+    return 0;
+  }
+
+  const features: Array<keyof HighlightMetadata> = [
+    "motionScore",
+    "shotDensityScore",
+    "spikeScore",
+    "dialogueScore",
+    "faceScore",
+    "sceneScore",
+    "energyScore",
+  ];
+  const distance =
+    features.reduce((sum, key) => {
+      return sum + Math.abs(metadataScore(current, key, 0.45) - metadataScore(previous, key, 0.45));
+    }, 0) / features.length;
+  const keyPenalty =
+    current.varietyKey && previous.varietyKey && current.varietyKey === previous.varietyKey
+      ? 0.28
+      : 0;
+
+  return clamp(1 - distance + keyPenalty, 0, 1);
+};
+
 const shouldKeepDirectorCut = (
   cut: DirectorCut,
   index: number,
@@ -521,6 +631,7 @@ const assignBeatDurationsToHighlights = (
   let sourcePointer = 0;
   let previousSource = -1;
   let previousStart = -1;
+  let previousMetadata: HighlightMetadata | undefined;
   const recentSources: number[] = [];
   const config = editEnergyConfig(editEnergy);
 
@@ -544,14 +655,36 @@ const assignBeatDurationsToHighlights = (
         const previousPenalty = index === previousSource ? 1 : 0;
         const rotationDistance =
           (index - sourcePointer + sources.length) % sources.length;
-        const dropBoost = beat.role === "drop" || beat.role === "strong" ? 0.3 : 0;
+        const roleScore = roleFitScore(source.highlight.metadata, beat);
+        const similarityPenalty = metadataSimilarity(
+          source.highlight.metadata,
+          previousMetadata,
+        );
+        const sameVarietyPenalty =
+          source.highlight.metadata?.varietyKey &&
+          previousMetadata?.varietyKey &&
+          source.highlight.metadata.varietyKey === previousMetadata.varietyKey
+            ? 0.32
+            : 0;
+        const roleWeight =
+          beat.role === "drop"
+            ? 1.45
+            : beat.role === "strong"
+              ? 1.2
+              : beat.role === "fill"
+                ? 1.05
+                : sectionPrefersStory(beat.sectionType)
+                  ? 0.9
+                  : 1;
         const fitPenalty = canFit ? 0 : 0.45;
         const score =
           timestampDistance * 1.35 +
+          roleScore * roleWeight +
           (sources.length - rotationDistance) * 0.03 +
-          dropBoost -
           recentPenalty * (beat.role === "drop" ? 1.4 : 0.85) -
           previousPenalty * 1.1 -
+          similarityPenalty * 0.62 -
+          sameVarietyPenalty -
           fitPenalty;
 
         return {index, score};
@@ -587,9 +720,11 @@ const assignBeatDurationsToHighlights = (
     synced.push({
       start: Number((source.highlight.start + source.cursor).toFixed(3)),
       duration: Number(duration.toFixed(3)),
+      metadata: source.highlight.metadata,
     });
 
     previousStart = source.highlight.start + source.cursor;
+    previousMetadata = source.highlight.metadata;
     source.cursor += duration;
     outputCursor += duration;
     previousSource = sourceIndex;

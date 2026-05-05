@@ -115,6 +115,32 @@ const escapeHtml = (value) => {
     .replaceAll("'", "&#039;");
 };
 
+const highlightMetaSummary = (metadata) => {
+  if (!metadata || typeof metadata !== "object") {
+    return "";
+  }
+
+  const entries = [
+    ["Energy", metadata.energyScore],
+    ["Motion", metadata.motionScore],
+    ["Scene", metadata.sceneScore],
+    ["Dialogue", metadata.dialogueScore],
+    ["Beat", metadata.spikeScore],
+  ]
+    .map(([label, value]) => ({label, value: Number(value)}))
+    .filter((item) => Number.isFinite(item.value))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 2);
+
+  if (!entries.length) {
+    return "";
+  }
+
+  return entries
+    .map((item) => `${item.label} ${Math.round(item.value * 100)}`)
+    .join(" · ");
+};
+
 const getEffectRecommendation = (project = state.project) => {
   return project?.analysis?.effectRecommendation || null;
 };
@@ -892,14 +918,18 @@ const renderHighlights = () => {
         Number(item.duration) === Number(highlight.duration) &&
         item.url,
     );
+    const metaSummary = highlightMetaSummary(highlight.metadata);
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>
-        ${
-          thumbnail
-            ? `<button class="thumb-button" data-preview="${index}" type="button" title="Preview this hook"><img src="${thumbnail.url}" alt=""></button>`
-            : `<button class="thumb-placeholder" data-preview="${index}" type="button" title="Preview this hook">Preview</button>`
-        }
+        <div class="thumb-stack">
+          ${
+            thumbnail
+              ? `<button class="thumb-button" data-preview="${index}" type="button" title="Preview this hook"><img src="${thumbnail.url}" alt=""></button>`
+              : `<button class="thumb-placeholder" data-preview="${index}" type="button" title="Preview this hook">Preview</button>`
+          }
+          ${metaSummary ? `<div class="thumb-meta">${escapeHtml(metaSummary)}</div>` : ""}
+        </div>
       </td>
       <td><input data-index="${index}" data-field="start" type="number" min="0" step="0.01" value="${highlight.start}"></td>
       <td><input data-index="${index}" data-field="duration" type="number" min="0.01" step="0.01" value="${highlight.duration}"></td>

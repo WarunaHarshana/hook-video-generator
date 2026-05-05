@@ -374,8 +374,8 @@
       <div class="figure">
         <img src="assets/ui-highlights-clean.png" alt="Highlight editor table" />
         <div class="caption">
-          Highlight rows include preview thumbnails, start time, duration, and
-          removal controls.
+          Highlight rows include preview thumbnails, signal hints, start time,
+          duration, and removal controls.
         </div>
       </div>
       <table>
@@ -389,6 +389,13 @@
           <tr>
             <td>Preview</td>
             <td>Shows a small frame from the clip so you can judge the moment quickly.</td>
+          </tr>
+          <tr>
+            <td>Signal hints</td>
+            <td>
+              Shows the strongest analyzed signals for that highlight, such as
+              energy, motion, scene change, dialogue, or beat strength.
+            </td>
           </tr>
           <tr>
             <td>Start</td>
@@ -499,7 +506,9 @@
               Uses the Music Director beat grid to switch between different
               highlight moments. Fast drum sections can rapidly jump from one
               analyzed highlight to another instead of slicing one clip in
-              place.
+              place. The selector also uses per-highlight motion, scene,
+              dialogue, and audio-spike metadata to avoid visually similar
+              back-to-back cuts when enough highlights are available.
             </td>
           </tr>
           <tr>
@@ -659,7 +668,8 @@
       <div class="callout">
         The Effects menu can still be changed manually. The recommendation
         below it is only a starting point based on analyzed video motion,
-        dialogue/face signals, audio spikes, and music beat pacing.
+        dialogue/face signals, audio spikes, per-highlight variety, and music
+        beat pacing.
       </div>
       <table>
         <thead>

@@ -12,9 +12,23 @@ import {fileURLToPath} from "node:url";
 import ffmpegPath from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
 
+type HighlightMetadata = {
+  motionScore?: number;
+  shotDensityScore?: number;
+  spikeScore?: number;
+  dialogueScore?: number;
+  faceScore?: number;
+  sceneScore?: number;
+  loudnessScore?: number;
+  audioScore?: number;
+  energyScore?: number;
+  varietyKey?: string;
+};
+
 type HighlightSegment = {
   start: number;
   duration: number;
+  metadata?: HighlightMetadata;
 };
 
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
@@ -392,6 +406,31 @@ const clampNumber = (value: unknown, min: number, max: number, fallback: number)
   return Math.min(Math.max(parsed, min), max);
 };
 
+const normalizeHighlightMetadata = (
+  value: unknown,
+): HighlightMetadata | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as HighlightMetadata;
+  return {
+    motionScore: clampNumber(input.motionScore, 0, 1, 0.45),
+    shotDensityScore: clampNumber(input.shotDensityScore, 0, 1, 0.45),
+    spikeScore: clampNumber(input.spikeScore, 0, 1, 0.35),
+    dialogueScore: clampNumber(input.dialogueScore, 0, 1, 0.45),
+    faceScore: clampNumber(input.faceScore, 0, 1, 0.45),
+    sceneScore: clampNumber(input.sceneScore, 0, 1, 0.45),
+    loudnessScore: clampNumber(input.loudnessScore, 0, 1, 0.45),
+    audioScore: clampNumber(input.audioScore, 0, 1, 0.45),
+    energyScore: clampNumber(input.energyScore, 0, 1, 0.45),
+    varietyKey:
+      typeof input.varietyKey === "string" && input.varietyKey.trim()
+        ? input.varietyKey.trim().slice(0, 80)
+        : undefined,
+  };
+};
+
 const normalizeMusicEditPlan = (value: unknown): MusicEditPlan | undefined => {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -543,6 +582,20 @@ const normalizeProjectAnalysis = (
   );
 
   return video || effectRecommendation ? {video, effectRecommendation} : undefined;
+};
+
+const normalizeProjectHighlights = (
+  highlights: ProjectJson["highlights"] | undefined,
+) => {
+  return Array.isArray(highlights)
+    ? highlights
+        .map((highlight) => ({
+          start: normalizeNumber(highlight.start),
+          duration: normalizeNumber(highlight.duration),
+          metadata: normalizeHighlightMetadata(highlight.metadata),
+        }))
+        .filter((highlight) => highlight.start >= 0 && highlight.duration > 0)
+    : [];
 };
 
 const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation => {
@@ -1287,18 +1340,12 @@ const loadProject = async () => {
     effectPreset: normalizeEffectPreset(input.effectPreset),
     music: normalizeMusicSettings(input.music),
     analysis: normalizeProjectAnalysis(input.analysis),
+    highlights: normalizeProjectHighlights(input.highlights),
   };
 };
 
 const validateProject = (input: ProjectJson): ProjectJson => {
-  const highlights = Array.isArray(input.highlights)
-    ? input.highlights
-        .map((highlight) => ({
-          start: normalizeNumber(highlight.start),
-          duration: normalizeNumber(highlight.duration),
-        }))
-        .filter((highlight) => highlight.start >= 0 && highlight.duration > 0)
-    : [];
+  const highlights = normalizeProjectHighlights(input.highlights);
 
   if (!input.src?.trim()) {
     throw new Error("Project is missing a source video path.");

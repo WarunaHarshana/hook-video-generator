@@ -39,6 +39,7 @@ const normalizeHighlights = (highlights: HookVideoInputProps["highlights"]) => {
     .map((highlight) => ({
       start: finitePositive(highlight.start, 0),
       duration: finitePositive(highlight.duration, 0),
+      metadata: highlight.metadata,
     }))
     .filter((highlight) => highlight.duration > 0);
 };
