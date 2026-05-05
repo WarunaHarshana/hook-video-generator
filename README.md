@@ -39,7 +39,7 @@ A full PDF guide with screenshots is included:
 - Choose visual effects: clean cuts, auto director, slow motion, kinetic whip, slow-fast ramp, beat punch, flash cuts, or impact shake.
 - Add an HDR-style color boost to SDR video with natural or vivid modes.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
-- Auto reframe when exporting to a different aspect ratio.
+- Auto reframe when exporting to a different aspect ratio using analyzed focus keyframes when available.
 - Choose CPU, GPU, or automatic render mode.
 - Pick the output path with a file chooser.
 - Cancel long analyze, music analyze, or render jobs.
@@ -107,6 +107,7 @@ If port `3210` is already in use, the app will show the next available URL in th
 - `4:5 portrait`: good for feed-style vertical posts.
 - `16:9 landscape`: good for YouTube-style landscape videos.
 - `Auto reframe`: reframes video when the final aspect ratio changes.
+- Auto reframe follows analyzed face/focus keyframes when available, and falls back to stable center framing when no reliable subject is detected.
 - `Color boost`: adds an HDR-style look to normal SDR video. This is a visual grade, not true HDR metadata.
 
 ## Render Options

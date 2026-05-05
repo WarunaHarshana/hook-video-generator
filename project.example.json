@@ -34,6 +34,24 @@
         "audioScore": 0.59,
         "energyScore": 0.67,
         "varietyKey": "motion|motion-high|scene-mid|talk-low"
+      },
+      "reframe": {
+        "tracking": "face",
+        "confidence": 0.74,
+        "keyframes": [
+          {
+            "time": 0,
+            "x": 0.52,
+            "y": 0.46,
+            "confidence": 0.72
+          },
+          {
+            "time": 3,
+            "x": 0.56,
+            "y": 0.47,
+            "confidence": 0.76
+          }
+        ]
       }
     },
     {

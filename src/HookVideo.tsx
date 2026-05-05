@@ -24,10 +24,24 @@ export type HighlightMetadata = {
   varietyKey?: string;
 };
 
+export type ReframeKeyframe = {
+  time: number;
+  x: number;
+  y: number;
+  confidence: number;
+};
+
+export type ReframePath = {
+  tracking: "face" | "center";
+  confidence: number;
+  keyframes: ReframeKeyframe[];
+};
+
 export type HighlightSegment = {
   start: number;
   duration: number;
   metadata?: HighlightMetadata;
+  reframe?: ReframePath;
 };
 
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
@@ -328,6 +342,88 @@ const planPaceAt = (
   }
 
   return effectPaceAt(music, timelineSeconds);
+};
+
+const focusAt = (reframe: ReframePath | undefined, time: number) => {
+  const keyframes = reframe?.keyframes
+    ?.map((keyframe) => ({
+      time: Number(keyframe.time),
+      x: clamp(Number(keyframe.x), 0, 1),
+      y: clamp(Number(keyframe.y), 0, 1),
+    }))
+    .filter((keyframe) => Number.isFinite(keyframe.time))
+    .sort((a, b) => a.time - b.time);
+
+  if (!keyframes?.length) {
+    return {x: 0.5, y: 0.5};
+  }
+
+  if (time <= keyframes[0].time) {
+    return {x: keyframes[0].x, y: keyframes[0].y};
+  }
+
+  for (let index = 1; index < keyframes.length; index += 1) {
+    const previous = keyframes[index - 1];
+    const next = keyframes[index];
+    if (time <= next.time) {
+      const progress = clamp(
+        (time - previous.time) / Math.max(0.001, next.time - previous.time),
+        0,
+        1,
+      );
+      const eased = Easing.inOut(Easing.cubic)(progress);
+      return {
+        x: interpolate(eased, [0, 1], [previous.x, next.x]),
+        y: interpolate(eased, [0, 1], [previous.y, next.y]),
+      };
+    }
+  }
+
+  const last = keyframes.at(-1);
+  return {x: last?.x ?? 0.5, y: last?.y ?? 0.5};
+};
+
+const reframeObjectPosition = ({
+  autoReframe,
+  clip,
+  localSeconds,
+  outputWidth,
+  outputHeight,
+  sourceWidth,
+  sourceHeight,
+}: {
+  autoReframe: boolean;
+  clip: ClipWithTiming;
+  localSeconds: number;
+  outputWidth: number;
+  outputHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+}) => {
+  if (!autoReframe) {
+    return "50% 50%";
+  }
+
+  const outputRatio = outputWidth / Math.max(outputHeight, 1);
+  const sourceRatio = sourceWidth / Math.max(sourceHeight, 1);
+  const focus = focusAt(clip.reframe, localSeconds);
+  const reframeConfidence = clamp(Number(clip.reframe?.confidence) || 0.35, 0, 1);
+  const follow = interpolate(reframeConfidence, [0.35, 0.85], [0.55, 0.92], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const x = 0.5 + (focus.x - 0.5) * follow;
+  const y = 0.5 + (focus.y - 0.5) * follow;
+
+  if (outputRatio < sourceRatio) {
+    return `${clamp(x * 100, 12, 88).toFixed(2)}% 50%`;
+  }
+
+  if (outputRatio > sourceRatio) {
+    return `50% ${clamp(y * 100, 16, 84).toFixed(2)}%`;
+  }
+
+  return "50% 50%";
 };
 
 const effectEventPulseAt = (
@@ -1277,6 +1373,8 @@ const SourceClip: React.FC<{
   index: number;
   reframeMode: ReframeMode;
   sourceVolume: number;
+  sourceWidth: number;
+  sourceHeight: number;
   effectPreset: EffectPreset;
   colorEnhancement: ColorEnhancement;
   music?: MusicSettings;
@@ -1286,6 +1384,8 @@ const SourceClip: React.FC<{
   index,
   reframeMode,
   sourceVolume,
+  sourceWidth,
+  sourceHeight,
   effectPreset,
   colorEnhancement,
   music,
@@ -1336,29 +1436,15 @@ const SourceClip: React.FC<{
     fps,
   );
   const autoReframe = reframeMode === "auto";
-  const portraitFrame = width < height;
-  const panDistance =
-    resolvedPreset === "smooth-slow"
-      ? 12
-      : resolvedPreset === "fast-kinetic"
-        ? 18
-        : resolvedPreset === "beat-punch"
-          ? 5
-          : 8;
-  const panOffset =
-    index % 3 === 0 ? -panDistance : index % 3 === 1 ? 0 : panDistance;
-  const pan = autoReframe
-    ? interpolate(
-        frame,
-        [0, Math.max(1, clip.durationInFrames - 1)],
-        [50 - panOffset, 50 + panOffset],
-        {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-          easing: Easing.inOut(Easing.cubic),
-        },
-      )
-    : 50;
+  const objectPosition = reframeObjectPosition({
+    autoReframe,
+    clip,
+    localSeconds: frame / fps,
+    outputWidth: width,
+    outputHeight: height,
+    sourceWidth,
+    sourceHeight,
+  });
   const endScale =
     resolvedPreset === "smooth-slow"
       ? 1.07
@@ -1432,11 +1518,7 @@ const SourceClip: React.FC<{
           width: "100%",
           height: "100%",
           objectFit: autoReframe ? "cover" : "contain",
-          objectPosition: autoReframe
-            ? portraitFrame
-              ? `${clamp(pan, 35, 65)}% 50%`
-              : `50% ${clamp(pan, 35, 65)}%`
-            : "50% 50%",
+          objectPosition,
           opacity: visualOpacity,
           transform,
           filter: effectVideoFilter(colorEnhancement, resolvedPreset, styledPulse),
@@ -1580,6 +1662,8 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   src,
   highlights,
   title = "",
+  sourceWidth,
+  sourceHeight,
   outputAspectRatio = "source",
   reframeMode,
   colorEnhancement = "off",
@@ -1598,6 +1682,8 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   const sourceVolume = activeMusic
     ? clamp(Number(activeMusic.sourceVolume), 0, 1)
     : 1;
+  const originalWidth = Math.max(1, Number(sourceWidth) || 1920);
+  const originalHeight = Math.max(1, Number(sourceHeight) || 1080);
 
   if (!src) {
     return (
@@ -1627,6 +1713,8 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
             index={index}
             reframeMode={resolvedReframeMode}
             sourceVolume={sourceVolume}
+            sourceWidth={originalWidth}
+            sourceHeight={originalHeight}
             effectPreset={effectPreset}
             colorEnhancement={colorEnhancement}
             music={activeMusic || undefined}

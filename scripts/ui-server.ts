@@ -25,10 +25,24 @@ type HighlightMetadata = {
   varietyKey?: string;
 };
 
+type ReframeKeyframe = {
+  time: number;
+  x: number;
+  y: number;
+  confidence: number;
+};
+
+type ReframePath = {
+  tracking: "face" | "center";
+  confidence: number;
+  keyframes: ReframeKeyframe[];
+};
+
 type HighlightSegment = {
   start: number;
   duration: number;
   metadata?: HighlightMetadata;
+  reframe?: ReframePath;
 };
 
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
@@ -431,6 +445,35 @@ const normalizeHighlightMetadata = (
   };
 };
 
+const normalizeReframePath = (value: unknown): ReframePath | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as Partial<ReframePath>;
+  const keyframes = Array.isArray(input.keyframes)
+    ? input.keyframes
+        .map((keyframe) => ({
+          time: Math.max(0, normalizeNumber(keyframe?.time, 0)),
+          x: clampNumber(keyframe?.x, 0, 1, 0.5),
+          y: clampNumber(keyframe?.y, 0, 1, 0.5),
+          confidence: clampNumber(keyframe?.confidence, 0, 1, 0.5),
+        }))
+        .sort((a, b) => a.time - b.time)
+        .slice(0, 60)
+    : [];
+
+  if (keyframes.length === 0) {
+    return undefined;
+  }
+
+  return {
+    tracking: input.tracking === "face" ? "face" : "center",
+    confidence: clampNumber(input.confidence, 0, 1, 0.5),
+    keyframes,
+  };
+};
+
 const normalizeMusicEditPlan = (value: unknown): MusicEditPlan | undefined => {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -593,6 +636,7 @@ const normalizeProjectHighlights = (
           start: normalizeNumber(highlight.start),
           duration: normalizeNumber(highlight.duration),
           metadata: normalizeHighlightMetadata(highlight.metadata),
+          reframe: normalizeReframePath(highlight.reframe),
         }))
         .filter((highlight) => highlight.start >= 0 && highlight.duration > 0)
     : [];

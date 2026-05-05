@@ -394,7 +394,8 @@
             <td>Signal hints</td>
             <td>
               Shows the strongest analyzed signals for that highlight, such as
-              energy, motion, scene change, dialogue, or beat strength.
+              energy, motion, scene change, dialogue, beat strength, or face
+              focus.
             </td>
           </tr>
           <tr>
@@ -617,7 +618,10 @@
             <td>Auto reframe when aspect changes</td>
             <td>
               When final aspect differs from the source, the app can reframe the
-              source automatically so the important region stays visible.
+              source automatically so the important region stays visible. Hook
+              analysis creates focus keyframes when it can detect a face; if no
+              reliable subject is found, the app keeps a stable center frame
+              instead of drifting around the video.
             </td>
           </tr>
           <tr>

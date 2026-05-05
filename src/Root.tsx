@@ -40,6 +40,7 @@ const normalizeHighlights = (highlights: HookVideoInputProps["highlights"]) => {
       start: finitePositive(highlight.start, 0),
       duration: finitePositive(highlight.duration, 0),
       metadata: highlight.metadata,
+      reframe: highlight.reframe,
     }))
     .filter((highlight) => highlight.duration > 0);
 };

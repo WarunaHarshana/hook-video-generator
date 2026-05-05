@@ -115,9 +115,10 @@ const escapeHtml = (value) => {
     .replaceAll("'", "&#039;");
 };
 
-const highlightMetaSummary = (metadata) => {
+const highlightMetaSummary = (highlight) => {
+  const metadata = highlight?.metadata;
   if (!metadata || typeof metadata !== "object") {
-    return "";
+    return highlight?.reframe?.tracking === "face" ? "Focus face" : "";
   }
 
   const entries = [
@@ -133,12 +134,14 @@ const highlightMetaSummary = (metadata) => {
     .slice(0, 2);
 
   if (!entries.length) {
-    return "";
+    return highlight?.reframe?.tracking === "face" ? "Focus face" : "";
   }
 
-  return entries
+  const signals = entries
     .map((item) => `${item.label} ${Math.round(item.value * 100)}`)
     .join(" · ");
+
+  return highlight?.reframe?.tracking === "face" ? `${signals} · Focus face` : signals;
 };
 
 const getEffectRecommendation = (project = state.project) => {
@@ -918,7 +921,7 @@ const renderHighlights = () => {
         Number(item.duration) === Number(highlight.duration) &&
         item.url,
     );
-    const metaSummary = highlightMetaSummary(highlight.metadata);
+    const metaSummary = highlightMetaSummary(highlight);
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>

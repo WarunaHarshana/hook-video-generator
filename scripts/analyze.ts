@@ -12,10 +12,24 @@ type HighlightMetadata = VideoAnalysisSummary & {
   varietyKey: string;
 };
 
+type ReframeKeyframe = {
+  time: number;
+  x: number;
+  y: number;
+  confidence: number;
+};
+
+type ReframePath = {
+  tracking: "face" | "center";
+  confidence: number;
+  keyframes: ReframeKeyframe[];
+};
+
 type HighlightSegment = {
   start: number;
   duration: number;
   metadata?: HighlightMetadata;
+  reframe?: ReframePath;
 };
 
 type EffectPreset =
@@ -182,6 +196,34 @@ const normalizeHighlightMetadata = (
   };
 };
 
+const normalizeReframePath = (
+  value: HighlightSegment["reframe"],
+): ReframePath | undefined => {
+  if (!value || typeof value !== "object" || !Array.isArray(value.keyframes)) {
+    return undefined;
+  }
+
+  const keyframes = value.keyframes
+    .map((keyframe) => ({
+      time: Math.max(0, Number(keyframe.time) || 0),
+      x: roundScore(finiteScore(keyframe.x, 0.5)),
+      y: roundScore(finiteScore(keyframe.y, 0.5)),
+      confidence: roundScore(finiteScore(keyframe.confidence, 0.5)),
+    }))
+    .sort((a, b) => a.time - b.time)
+    .slice(0, 60);
+
+  if (keyframes.length === 0) {
+    return undefined;
+  }
+
+  return {
+    tracking: value.tracking === "face" ? "face" : "center",
+    confidence: roundScore(finiteScore(value.confidence, 0.5)),
+    keyframes,
+  };
+};
+
 const percentile = (values: number[], amount: number) => {
   if (values.length === 0) {
     return 0;
@@ -331,6 +373,7 @@ const loadHighlightsJson = async (highlightsPath: string) => {
       start: Number(highlight.start),
       duration: Number(highlight.duration),
       metadata: normalizeHighlightMetadata(highlight.metadata),
+      reframe: normalizeReframePath(highlight.reframe),
     }))
     .filter(
       (highlight) =>
@@ -581,6 +624,156 @@ const probeFaceScore = async (
     return clamp(faceFrames.size / frames.size, 0, 1);
   } catch {
     return 0.45;
+  }
+};
+
+const centerReframePath = (duration: number): ReframePath => {
+  return {
+    tracking: "center",
+    confidence: 0.35,
+    keyframes: [
+      {time: 0, x: 0.5, y: 0.5, confidence: 0.35},
+      {
+        time: Number(Math.max(0, duration).toFixed(3)),
+        x: 0.5,
+        y: 0.5,
+        confidence: 0.35,
+      },
+    ],
+  };
+};
+
+const smoothReframeKeyframes = (
+  keyframes: ReframeKeyframe[],
+): ReframeKeyframe[] => {
+  return keyframes.map((keyframe, index) => {
+    const neighbors = keyframes.slice(
+      Math.max(0, index - 1),
+      Math.min(keyframes.length, index + 2),
+    );
+    const weight = neighbors.reduce((sum, item) => sum + item.confidence, 0) || 1;
+
+    return {
+      time: keyframe.time,
+      x: roundScore(
+        neighbors.reduce((sum, item) => sum + item.x * item.confidence, 0) / weight,
+      ),
+      y: roundScore(
+        neighbors.reduce((sum, item) => sum + item.y * item.confidence, 0) / weight,
+      ),
+      confidence: roundScore(keyframe.confidence),
+    };
+  });
+};
+
+const probeReframePath = async ({
+  input,
+  start,
+  duration,
+  sourceWidth,
+  sourceHeight,
+}: {
+  input: string;
+  start: number;
+  duration: number;
+  sourceWidth: number;
+  sourceHeight: number;
+}): Promise<ReframePath> => {
+  try {
+    const scaledWidth = 320;
+    const scaledHeight = Math.max(
+      2,
+      Math.round((sourceHeight / Math.max(sourceWidth, 1)) * scaledWidth),
+    );
+    const output = await runFfmpeg([
+      "-hide_banner",
+      "-ss",
+      String(Math.max(0, start)),
+      "-t",
+      String(duration),
+      "-i",
+      input,
+      "-vf",
+      "fps=2,scale=320:-2,facedetect=neighbors=4:scale_factor=1.08,metadata=print:file=-",
+      "-an",
+      "-f",
+      "null",
+      "-",
+    ]);
+    const detections = new Map<string, ReframeKeyframe>();
+    let currentTime = 0;
+    let current: Partial<{x: number; y: number; w: number; h: number}> = {};
+
+    const flush = () => {
+      if (
+        current.x === undefined ||
+        current.y === undefined ||
+        current.w === undefined ||
+        current.h === undefined
+      ) {
+        return;
+      }
+
+      const localTime = currentTime > start ? currentTime - start : currentTime;
+      const boundedTime = clamp(localTime, 0, duration);
+      const confidence = clamp((current.w * current.h) / (scaledWidth * scaledHeight) * 8, 0.38, 1);
+      const keyframe = {
+        time: Number(boundedTime.toFixed(3)),
+        x: roundScore((current.x + current.w / 2) / scaledWidth),
+        y: roundScore((current.y + current.h / 2) / scaledHeight),
+        confidence: roundScore(confidence),
+      };
+      const key = keyframe.time.toFixed(2);
+      const existing = detections.get(key);
+      if (!existing || keyframe.confidence > existing.confidence) {
+        detections.set(key, keyframe);
+      }
+      current = {};
+    };
+
+    for (const line of output.split(/\r?\n/)) {
+      const time = Number(/pts_time:([0-9.]+)/.exec(line)?.[1]);
+      if (Number.isFinite(time) && time >= 0) {
+        flush();
+        currentTime = time;
+      }
+
+      const match = /lavfi\.facedetect\.(x|y|w|h)=([0-9.]+)/.exec(line);
+      if (match) {
+        current[match[1] as "x" | "y" | "w" | "h"] = Number(match[2]);
+      }
+    }
+    flush();
+
+    const keyframes = smoothReframeKeyframes([...detections.values()].sort((a, b) => a.time - b.time));
+    if (keyframes.length === 0) {
+      return centerReframePath(duration);
+    }
+
+    const withEdges = [
+      keyframes[0].time > 0.05
+        ? {...keyframes[0], time: 0}
+        : keyframes[0],
+      ...keyframes.slice(keyframes[0].time > 0.05 ? 0 : 1),
+    ];
+    const last = withEdges.at(-1);
+    if (last && duration - last.time > 0.1) {
+      withEdges.push({...last, time: Number(duration.toFixed(3))});
+    }
+    const confidence = clamp(
+      withEdges.reduce((sum, keyframe) => sum + keyframe.confidence, 0) /
+        Math.max(1, withEdges.length),
+      0,
+      1,
+    );
+
+    return {
+      tracking: "face",
+      confidence: roundScore(confidence),
+      keyframes: withEdges.slice(0, 60),
+    };
+  } catch {
+    return centerReframePath(duration);
   }
 };
 
@@ -986,12 +1179,16 @@ const sceneTimestampsToHighlights = async ({
   clipDuration,
   maxClips,
   sourceDuration,
+  sourceWidth,
+  sourceHeight,
 }: {
   input: string;
   shotChanges: ShotChange[];
   clipDuration: number;
   maxClips: number;
   sourceDuration: number;
+  sourceWidth: number;
+  sourceHeight: number;
 }): Promise<HookSelection> => {
   const pool = buildCandidatePool({
     shotChanges,
@@ -1024,11 +1221,37 @@ const sceneTimestampsToHighlights = async ({
     clipDuration,
     maxClips,
   });
+  const highlights: HighlightSegment[] = [...selection.highlights];
+
+  if (useFaceDetection) {
+    for (let index = 0; index < highlights.length; index += 1) {
+      progress(86 + (index / Math.max(1, highlights.length)) * 8, `Building reframe path ${index + 1}/${highlights.length}`);
+      highlights[index] = {
+        ...highlights[index],
+        reframe: await probeReframePath({
+          input,
+          start: highlights[index].start,
+          duration: highlights[index].duration,
+          sourceWidth,
+          sourceHeight,
+        }),
+      };
+    }
+  } else {
+    for (let index = 0; index < highlights.length; index += 1) {
+      highlights[index] = {
+        ...highlights[index],
+        reframe: centerReframePath(highlights[index].duration),
+      };
+    }
+  }
+
   const videoSummary = summarizeVideo(selection.selectedCandidates);
   const effectRecommendation = recommendEffectFromVideo(videoSummary);
 
   return {
     ...selection,
+    highlights,
     videoSummary,
     effectRecommendation,
   };
@@ -1083,6 +1306,8 @@ const main = async () => {
           clipDuration,
           maxClips,
           sourceDuration: metadata.duration,
+          sourceWidth: metadata.width,
+          sourceHeight: metadata.height,
         });
   const {highlights, videoSummary, effectRecommendation} = hookSelection;
 
