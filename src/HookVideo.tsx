@@ -20,6 +20,7 @@ export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
 export type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
 export type BeatSyncIntensity = "loose" | "tight" | "fast";
+export type EditEnergy = "calm" | "balanced" | "aggressive";
 export type EffectPreset =
   | "clean"
   | "auto"
@@ -39,6 +40,7 @@ export type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 export type MusicTempo = "slow" | "medium" | "fast";
 export type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
 export type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+export type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 
 export type MusicSection = {
   start: number;
@@ -52,6 +54,7 @@ export type MusicCutPoint = {
   time: number;
   strength: number;
   sectionType?: MusicSectionType;
+  role?: MusicCutRole;
 };
 
 export type MusicEffectEvent = {
@@ -72,6 +75,7 @@ export type MusicEditPlan = {
 export type BeatSyncSettings = {
   enabled: boolean;
   intensity: BeatSyncIntensity;
+  editEnergy?: EditEnergy;
 };
 
 export type MusicSettings = {
@@ -173,6 +177,36 @@ const beatSyncConfig = (intensity: BeatSyncIntensity) => {
   }
 
   return {min: 0.45, max: 1.35, ideal: 0.85, beatsPerCut: 1};
+};
+
+const editEnergyConfig = (energy: EditEnergy | undefined) => {
+  if (energy === "aggressive") {
+    return {
+      recentWindow: 3,
+      effectMultiplier: 1.18,
+      keepFillCuts: true,
+      keepEveryBeat: true,
+      strongOnly: false,
+    };
+  }
+
+  if (energy === "calm") {
+    return {
+      recentWindow: 1,
+      effectMultiplier: 0.78,
+      keepFillCuts: false,
+      keepEveryBeat: false,
+      strongOnly: false,
+    };
+  }
+
+  return {
+    recentWindow: 2,
+    effectMultiplier: 1,
+    keepFillCuts: false,
+    keepEveryBeat: true,
+    strongOnly: false,
+  };
 };
 
 const beatStrengthAt = (music: MusicSettings | undefined, timelineSeconds: number) => {
@@ -309,7 +343,11 @@ const effectEventPulseAt = (
       easing: Easing.out(Easing.cubic),
     });
 
-    return Math.max(strongest, pulse * clamp(Number(event.strength) || 0, 0, 1));
+    const energy = editEnergyConfig(music.beatSync?.editEnergy);
+    return Math.max(
+      strongest,
+      pulse * clamp((Number(event.strength) || 0) * energy.effectMultiplier, 0, 1),
+    );
   }, 0);
 };
 
@@ -327,24 +365,92 @@ const uniqueSortedBoundaries = (boundaries: number[]) => {
     }, []);
 };
 
+type BeatDuration = {
+  duration: number;
+  role: MusicCutRole;
+  strength: number;
+  sectionType?: MusicSectionType;
+};
+
+type DirectorCut = {
+  time: number;
+  role: MusicCutRole;
+  strength: number;
+  sectionType?: MusicSectionType;
+};
+
+const shouldKeepDirectorCut = (
+  cut: DirectorCut,
+  index: number,
+  energy: EditEnergy,
+) => {
+  if (cut.time <= 0.05 || cut.role === "transition" || cut.role === "drop") {
+    return true;
+  }
+
+  if (cut.role === "strong") {
+    return true;
+  }
+
+  const config = editEnergyConfig(energy);
+
+  if (cut.role === "fill") {
+    return config.keepFillCuts && index % 2 === 0;
+  }
+
+  if (energy === "calm") {
+    return index % 2 === 0 || cut.strength >= 0.72;
+  }
+
+  return config.keepEveryBeat || cut.strength >= 0.62;
+};
+
 const buildDirectorDurations = ({
-  boundaries,
+  cuts,
   config,
   targetDuration,
   exactCuts,
+  editEnergy,
 }: {
-  boundaries: number[];
+  cuts: DirectorCut[];
   config: ReturnType<typeof beatSyncConfig>;
   targetDuration: number;
   exactCuts: boolean;
-}) => {
-  const durations: number[] = [];
+  editEnergy: EditEnergy;
+}): BeatDuration[] => {
+  const selectedCuts = uniqueSortedBoundaries(
+    cuts
+      .filter((cut, index) => shouldKeepDirectorCut(cut, index, editEnergy))
+      .map((cut) => cut.time),
+  ).map((time) => {
+    const cut = cuts.find((item) => Math.abs(item.time - time) <= 0.05);
+    return {
+      time,
+      role: cut?.role ?? "beat",
+      strength: cut?.strength ?? 0.5,
+      sectionType: cut?.sectionType,
+    };
+  });
+  const boundaries = uniqueSortedBoundaries([
+    0,
+    ...selectedCuts.map((cut) => cut.time),
+    targetDuration,
+  ]);
+  const cutByTime = (time: number) =>
+    selectedCuts.find((cut) => Math.abs(cut.time - time) <= 0.05);
+  const durations: BeatDuration[] = [];
 
   if (exactCuts) {
     for (let index = 1; index < boundaries.length; index += 1) {
       const duration = boundaries[index] - boundaries[index - 1];
       if (duration >= 0.08) {
-        durations.push(Number(duration.toFixed(3)));
+        const cut = cutByTime(boundaries[index - 1]);
+        durations.push({
+          duration: Number(duration.toFixed(3)),
+          role: cut?.role ?? "beat",
+          strength: cut?.strength ?? 0.5,
+          sectionType: cut?.sectionType,
+        });
       }
     }
 
@@ -387,7 +493,13 @@ const buildDirectorDurations = ({
       break;
     }
 
-    durations.push(Number(duration.toFixed(3)));
+    const cut = cutByTime(cursor);
+    durations.push({
+      duration: Number(duration.toFixed(3)),
+      role: cut?.role ?? "beat",
+      strength: cut?.strength ?? 0.5,
+      sectionType: cut?.sectionType,
+    });
     cursor += duration;
   }
 
@@ -396,8 +508,9 @@ const buildDirectorDurations = ({
 
 const assignBeatDurationsToHighlights = (
   highlights: HighlightSegment[],
-  durations: number[],
+  durations: BeatDuration[],
   targetDuration: number,
+  editEnergy: EditEnergy,
 ) => {
   const sources = highlights.map((highlight) => ({
     highlight,
@@ -407,52 +520,61 @@ const assignBeatDurationsToHighlights = (
   let outputCursor = 0;
   let sourcePointer = 0;
   let previousSource = -1;
+  let previousStart = -1;
+  const recentSources: number[] = [];
+  const config = editEnergyConfig(editEnergy);
 
   const remainingFor = (index: number) => {
     return Math.max(0, sources[index].highlight.duration - sources[index].cursor);
   };
 
-  const chooseSource = (duration: number) => {
-    const allowPreviousOnlyIfNeeded = (index: number) =>
-      sources.length === 1 || index !== previousSource;
+  const chooseSource = (beat: BeatDuration) => {
+    const candidates = sources
+      .map((source, index) => {
+        const remaining = remainingFor(index);
+        if (remaining < 0.08) {
+          return null;
+        }
 
-    for (let offset = 0; offset < sources.length; offset += 1) {
-      const index = (sourcePointer + offset) % sources.length;
-      if (allowPreviousOnlyIfNeeded(index) && remainingFor(index) >= duration - 0.015) {
-        return index;
-      }
-    }
+        const canFit = remaining >= beat.duration - 0.015;
+        const start = source.highlight.start + source.cursor;
+        const timestampDistance =
+          previousStart < 0 ? 1 : clamp(Math.abs(start - previousStart) / 18, 0, 1);
+        const recentPenalty = recentSources.includes(index) ? 1 : 0;
+        const previousPenalty = index === previousSource ? 1 : 0;
+        const rotationDistance =
+          (index - sourcePointer + sources.length) % sources.length;
+        const dropBoost = beat.role === "drop" || beat.role === "strong" ? 0.3 : 0;
+        const fitPenalty = canFit ? 0 : 0.45;
+        const score =
+          timestampDistance * 1.35 +
+          (sources.length - rotationDistance) * 0.03 +
+          dropBoost -
+          recentPenalty * (beat.role === "drop" ? 1.4 : 0.85) -
+          previousPenalty * 1.1 -
+          fitPenalty;
 
-    for (let offset = 0; offset < sources.length; offset += 1) {
-      const index = (sourcePointer + offset) % sources.length;
-      if (remainingFor(index) >= duration - 0.015) {
-        return index;
-      }
-    }
+        return {index, score};
+      })
+      .filter((candidate): candidate is {index: number; score: number} => Boolean(candidate))
+      .sort((a, b) => b.score - a.score);
 
-    for (let offset = 0; offset < sources.length; offset += 1) {
-      const index = (sourcePointer + offset) % sources.length;
-      if (allowPreviousOnlyIfNeeded(index) && remainingFor(index) >= 0.08) {
-        return index;
-      }
-    }
-
-    return sources.findIndex((_, index) => remainingFor(index) >= 0.08);
+    return candidates[0]?.index ?? -1;
   };
 
-  for (const requestedDuration of durations) {
+  for (const beat of durations) {
     if (outputCursor >= targetDuration - 0.05 || synced.length >= 180) {
       break;
     }
 
-    const sourceIndex = chooseSource(requestedDuration);
+    const sourceIndex = chooseSource(beat);
     if (sourceIndex < 0) {
       break;
     }
 
     const source = sources[sourceIndex];
     const duration = Math.min(
-      requestedDuration,
+      beat.duration,
       remainingFor(sourceIndex),
       targetDuration - outputCursor,
     );
@@ -467,9 +589,15 @@ const assignBeatDurationsToHighlights = (
       duration: Number(duration.toFixed(3)),
     });
 
+    previousStart = source.highlight.start + source.cursor;
     source.cursor += duration;
     outputCursor += duration;
     previousSource = sourceIndex;
+    recentSources.push(sourceIndex);
+    const maxRecent = Math.min(config.recentWindow, Math.max(0, sources.length - 1));
+    while (recentSources.length > maxRecent) {
+      recentSources.shift();
+    }
     sourcePointer = (sourceIndex + 1) % sources.length;
   }
 
@@ -536,29 +664,44 @@ export const buildBeatSyncedHighlights = (
   const musicDuration = Math.max(0.1, Number(music.duration) || totalSeconds);
   const targetDuration = Math.min(totalSeconds, musicDuration);
   const config = beatSyncConfig(music.beatSync?.intensity ?? "tight");
+  const editEnergy = music.beatSync?.editEnergy ?? "balanced";
   const beats = music.beats ?? [];
   const plannedCuts = (music.editPlan?.cutPoints ?? [])
-    .map((cut) => Number(cut.time))
-    .filter((cut) => Number.isFinite(cut) && cut > 0.08 && cut < targetDuration - 0.08);
-  const relativeBeats = plannedCuts.length >= 2
-    ? plannedCuts
-    : beats
-        .map((beat) => Number(beat) - musicStart)
-        .filter((beat) => Number.isFinite(beat) && beat > 0.08 && beat < targetDuration - 0.08)
-        .sort((a, b) => a - b);
+    .map((cut) => ({
+      time: Number(cut.time),
+      strength: clamp(Number(cut.strength) || 0.5, 0, 1),
+      role: cut.role ?? "beat",
+      sectionType: cut.sectionType,
+    }))
+    .filter((cut) => Number.isFinite(cut.time) && cut.time > 0.08 && cut.time < targetDuration - 0.08);
+  const fallbackCuts = beats
+    .map((beat) => Number(beat) - musicStart)
+    .filter((beat) => Number.isFinite(beat) && beat > 0.08 && beat < targetDuration - 0.08)
+    .sort((a, b) => a - b)
+    .map((time) => ({
+      time,
+      strength: beatStrengthAt(music, time),
+      role: "beat" as MusicCutRole,
+    }));
+  const directorCuts = plannedCuts.length >= 2 ? plannedCuts : fallbackCuts;
 
-  if (relativeBeats.length < 1 || highlights.length === 0) {
+  if (directorCuts.length < 1 || highlights.length === 0) {
     return highlights;
   }
 
-  const boundaries = uniqueSortedBoundaries([0, ...relativeBeats, targetDuration]);
   const durations = buildDirectorDurations({
-    boundaries,
+    cuts: directorCuts,
     config,
     targetDuration,
+    editEnergy,
     exactCuts: plannedCuts.length >= 1,
   });
-  const synced = assignBeatDurationsToHighlights(highlights, durations, targetDuration);
+  const synced = assignBeatDurationsToHighlights(
+    highlights,
+    durations,
+    targetDuration,
+    editEnergy,
+  );
 
   return synced.length > 0 ? synced : highlights;
 };

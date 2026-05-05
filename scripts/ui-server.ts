@@ -21,10 +21,12 @@ type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
 type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
+type EditEnergy = "calm" | "balanced" | "aggressive";
 type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 type MusicTempo = "slow" | "medium" | "fast";
 type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
 type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
@@ -60,6 +62,7 @@ type BeatEvent = {
 type BeatSyncSettings = {
   enabled: boolean;
   intensity: BeatSyncIntensity;
+  editEnergy: EditEnergy;
 };
 
 type MusicSection = {
@@ -74,6 +77,7 @@ type MusicCutPoint = {
   time: number;
   strength: number;
   sectionType?: MusicSectionType;
+  role?: MusicCutRole;
 };
 
 type MusicEffectEvent = {
@@ -285,6 +289,7 @@ const beatSyncIntensities = new Set<BeatSyncIntensity>([
   "tight",
   "fast",
 ]);
+const editEnergies = new Set<EditEnergy>(["calm", "balanced", "aggressive"]);
 const musicSectionTypes = new Set<MusicSectionType>([
   "intro",
   "verse",
@@ -304,6 +309,13 @@ const musicEffectEventTypes = new Set<MusicEffectEventType>([
   "flash",
   "impact",
   "whip",
+]);
+const musicCutRoles = new Set<MusicCutRole>([
+  "beat",
+  "strong",
+  "drop",
+  "fill",
+  "transition",
 ]);
 
 const normalizeOutputAspectRatio = (value: unknown): OutputAspectRatio => {
@@ -337,6 +349,12 @@ const normalizeBeatSyncIntensity = (value: unknown): BeatSyncIntensity => {
     : "tight";
 };
 
+const normalizeEditEnergy = (value: unknown): EditEnergy => {
+  return typeof value === "string" && editEnergies.has(value as EditEnergy)
+    ? (value as EditEnergy)
+    : "balanced";
+};
+
 const normalizeMusicSectionType = (value: unknown): MusicSectionType => {
   return typeof value === "string" && musicSectionTypes.has(value as MusicSectionType)
     ? (value as MusicSectionType)
@@ -360,6 +378,12 @@ const normalizeMusicEffectEventType = (value: unknown): MusicEffectEventType => 
     musicEffectEventTypes.has(value as MusicEffectEventType)
     ? (value as MusicEffectEventType)
     : "pulse";
+};
+
+const normalizeMusicCutRole = (value: unknown): MusicCutRole => {
+  return typeof value === "string" && musicCutRoles.has(value as MusicCutRole)
+    ? (value as MusicCutRole)
+    : "beat";
 };
 
 const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
@@ -392,6 +416,7 @@ const normalizeMusicEditPlan = (value: unknown): MusicEditPlan | undefined => {
           sectionType: cut?.sectionType
             ? normalizeMusicSectionType(cut.sectionType)
             : undefined,
+          role: cut?.role ? normalizeMusicCutRole(cut.role) : undefined,
         }))
         .sort((a, b) => a.time - b.time)
         .slice(0, 160)
@@ -460,6 +485,7 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
     beatSync: {
       enabled: Boolean(beatSync?.enabled),
       intensity: normalizeBeatSyncIntensity(beatSync?.intensity),
+      editEnergy: normalizeEditEnergy(beatSync?.editEnergy),
     },
     editPlan: normalizeMusicEditPlan(input.editPlan),
     detected: input.detected,
@@ -1870,6 +1896,10 @@ const routeApi = async (
                 ? Boolean(currentProject.music.beatSync.enabled)
                 : true,
               intensity: analyzedMusic.beatSync?.intensity ?? "tight",
+              editEnergy:
+                currentProject.music?.beatSync?.editEnergy ??
+                analyzedMusic.beatSync?.editEnergy ??
+                "balanced",
             },
           };
 

@@ -26,9 +26,12 @@ A full PDF guide with screenshots is included:
 - Listen to the full music file and the analyzed music section.
 - Automatically detect beats in the music.
 - Build a Music Director plan with tempo, energy sections, cut points, and effect hits.
+- Label music cuts as beat, strong, drop, fill, or transition moments.
 - Auto-select beat style based on the music rhythm.
 - Auto-recommend the visual effect from video motion/dialogue signals and music beat analysis.
 - Cut between different highlight moments on music beats.
+- Choose edit energy: calm, balanced, or aggressive.
+- View a beat-edit timeline showing sections, cut roles, and effect hits.
 - Make effects react to the analyzed music plan, including build/drop sections and stronger beat hits.
 - Control background music volume and original source audio volume.
 - Choose visual effects: clean cuts, auto director, slow motion, kinetic whip, slow-fast ramp, beat punch, flash cuts, or impact shake.
@@ -85,6 +88,7 @@ If port `3210` is already in use, the app will show the next available URL in th
 - After analysis, the Music Director reads the song as sections such as intro, verse, build, drop, and outro.
 - The Music Director creates cut points and effect hits from beat strength, section energy, and tempo.
 - When beat cutting is enabled, the music beat grid drives the edit. Fast drum sections rapidly switch between different highlight moments instead of slicing one clip in place.
+- `Edit energy` controls how intense the beat edit feels. Calm merges more small cuts, Balanced follows strong rhythm changes, and Aggressive keeps more fills/drop hits.
 - `Beat style` is selected automatically after music analysis.
 - `Effects` is also recommended automatically after hook analysis, then refined after music analysis.
 - `Loose` creates slower, longer rhythm cuts.

@@ -49,7 +49,9 @@ const els = {
   useEntireMusic: document.querySelector("#useEntireMusic"),
   beatSyncEnabled: document.querySelector("#beatSyncEnabled"),
   beatSyncIntensity: document.querySelector("#beatSyncIntensity"),
+  beatEditEnergy: document.querySelector("#beatEditEnergy"),
   musicDirector: document.querySelector("#musicDirector"),
+  beatTimeline: document.querySelector("#beatTimeline"),
   musicStatus: document.querySelector("#musicStatus"),
   musicProgressPhase: document.querySelector("#musicProgressPhase"),
   musicProgressPercent: document.querySelector("#musicProgressPercent"),
@@ -224,6 +226,8 @@ const setBusy = (busy) => {
   els.beatSyncEnabled.disabled = busy || !hasMusicSource || !hasAnalyzedBeats;
   els.beatSyncIntensity.disabled =
     busy || !hasMusicSource || !hasAnalyzedBeats || !els.beatSyncEnabled.checked;
+  els.beatEditEnergy.disabled =
+    busy || !hasMusicSource || !hasAnalyzedBeats || !els.beatSyncEnabled.checked;
   els.renderMode.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
@@ -359,6 +363,7 @@ const musicFromControls = () => {
     beatSync: {
       enabled: els.beatSyncEnabled.checked,
       intensity: els.beatSyncIntensity.value || "tight",
+      editEnergy: els.beatEditEnergy.value || "balanced",
     },
   };
 };
@@ -437,8 +442,65 @@ const musicDirectorSummary = (music) => {
   const curve = plan.energyCurve || "steady";
   const cutCount = plan.cutPoints?.length || 0;
   const eventCount = plan.effectEvents?.length || 0;
+  const roles = (plan.cutPoints || []).reduce((counts, cut) => {
+    const role = cut.role || "beat";
+    counts[role] = (counts[role] || 0) + 1;
+    return counts;
+  }, {});
+  const roleText = Object.entries(roles)
+    .filter(([, count]) => count > 0)
+    .map(([role, count]) => `${count} ${role}`)
+    .join(", ");
 
-  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. ${sectionText}.`;
+  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}`;
+};
+
+const renderBeatTimeline = (music) => {
+  const plan = music?.editPlan;
+
+  if (!plan || !els.beatTimeline) {
+    els.beatTimeline.innerHTML = "";
+    els.beatTimeline.hidden = true;
+    return;
+  }
+
+  const duration = Math.max(0.1, Number(music.duration) || Number(plan.sections?.at(-1)?.end) || 0.1);
+  const sections = plan.sections || [];
+  const cuts = plan.cutPoints || [];
+  const events = plan.effectEvents || [];
+  const sectionBands = sections.map((section) => {
+    const left = Math.max(0, Math.min(100, (Number(section.start) / duration) * 100));
+    const width = Math.max(
+      0.8,
+      Math.min(100 - left, ((Number(section.end) - Number(section.start)) / duration) * 100),
+    );
+    return `<span class="timeline-section ${escapeHtml(section.type)}" style="left:${left}%;width:${width}%;" title="${escapeHtml(section.type)}"></span>`;
+  }).join("");
+  const cutMarks = cuts.slice(0, 140).map((cut) => {
+    const left = Math.max(0, Math.min(100, (Number(cut.time) / duration) * 100));
+    const role = cut.role || "beat";
+    return `<span class="timeline-cut ${escapeHtml(role)}" style="left:${left}%;" title="${escapeHtml(role)} cut at ${seconds(cut.time)}"></span>`;
+  }).join("");
+  const eventMarks = events.slice(0, 160).map((event) => {
+    const left = Math.max(0, Math.min(100, (Number(event.time) / duration) * 100));
+    return `<span class="timeline-event ${escapeHtml(event.type)}" style="left:${left}%;" title="${escapeHtml(event.type)} effect at ${seconds(event.time)}"></span>`;
+  }).join("");
+
+  els.beatTimeline.hidden = false;
+  els.beatTimeline.innerHTML = `
+    <div class="timeline-head">
+      <span>Beat edit timeline</span>
+      <strong>${escapeHtml(music.beatSync?.editEnergy || "balanced")}</strong>
+    </div>
+    <div class="timeline-track">${sectionBands}${cutMarks}${eventMarks}</div>
+    <div class="timeline-legend">
+      <span><i class="beat"></i>Beat</span>
+      <span><i class="strong"></i>Strong</span>
+      <span><i class="drop"></i>Drop</span>
+      <span><i class="fill"></i>Fill</span>
+      <span><i class="effect"></i>Effect</span>
+    </div>
+  `;
 };
 
 const updateMusicPreview = () => {
@@ -451,6 +513,7 @@ const updateMusicPreview = () => {
     state.musicFileDuration = null;
     els.musicStatus.textContent = "No music selected";
     els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
+    renderBeatTimeline(null);
     return;
   }
 
@@ -462,6 +525,7 @@ const updateMusicPreview = () => {
     els.musicStatus.textContent =
       "YouTube links are not direct music files. Choose a local music file instead.";
     els.musicDirector.textContent = "Music Director needs a local music file.";
+    renderBeatTimeline(null);
     return;
   }
 
@@ -469,6 +533,7 @@ const updateMusicPreview = () => {
   setAudioPreviewSource(els.analyzedMusicPreview, src);
   els.musicStatus.textContent = musicSummary(musicFromControls());
   els.musicDirector.textContent = musicDirectorSummary(state.project?.music);
+  renderBeatTimeline(state.project?.music);
 };
 
 const renderMusicControls = (music) => {
@@ -490,6 +555,7 @@ const renderMusicControls = (music) => {
   applyEntireMusicFile();
   els.beatSyncEnabled.checked = Boolean(music?.beatSync?.enabled);
   els.beatSyncIntensity.value = music?.beatSync?.intensity || "tight";
+  els.beatEditEnergy.value = music?.beatSync?.editEnergy || "balanced";
   updateMusicPreview();
   if (music?.detected) {
     setMusicProgress(100, "Music analyzed");
@@ -497,6 +563,7 @@ const renderMusicControls = (music) => {
     setMusicProgress(0, "Music ready");
   }
   els.musicDirector.textContent = musicDirectorSummary(music);
+  renderBeatTimeline(music);
 };
 
 const refreshMusicReadiness = () => {
@@ -534,6 +601,7 @@ const refreshMusicReadiness = () => {
       100,
     );
     els.musicDirector.textContent = musicDirectorSummary(state.project.music);
+    renderBeatTimeline(state.project.music);
     return;
   }
 
@@ -543,6 +611,7 @@ const refreshMusicReadiness = () => {
     0,
   );
   els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
+  renderBeatTimeline(null);
 };
 
 const syncRenderModeControls = () => {
@@ -1429,7 +1498,9 @@ els.removeMusicBtn.addEventListener("click", async () => {
   els.useEntireMusic.checked = false;
   els.beatSyncEnabled.checked = false;
   els.beatSyncIntensity.value = "tight";
+  els.beatEditEnergy.value = "balanced";
   els.musicDirector.textContent = "Analyze music to build a cut and effects plan.";
+  renderBeatTimeline(null);
   setBusy(isActiveJob());
 });
 
@@ -1546,6 +1617,7 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
   els.useEntireMusic,
   els.beatSyncEnabled,
   els.beatSyncIntensity,
+  els.beatEditEnergy,
 ].forEach((input) => {
   input.addEventListener("input", () => {
     if (input === els.useEntireMusic) {
@@ -1561,10 +1633,12 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
       input === els.musicDuration ||
       input === els.useEntireMusic ||
       input === els.beatSyncEnabled ||
-      input === els.beatSyncIntensity
+      input === els.beatSyncIntensity ||
+      input === els.beatEditEnergy
     ) {
       seekAnalyzedMusicStart();
       renderMetrics();
+      renderBeatTimeline(state.project?.music);
     }
     setBusy(isActiveJob());
   });
@@ -1582,10 +1656,12 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
       input === els.musicDuration ||
       input === els.useEntireMusic ||
       input === els.beatSyncEnabled ||
-      input === els.beatSyncIntensity
+      input === els.beatSyncIntensity ||
+      input === els.beatEditEnergy
     ) {
       seekAnalyzedMusicStart();
       renderMetrics();
+      renderBeatTimeline(state.project?.music);
     }
     setBusy(isActiveJob());
   });

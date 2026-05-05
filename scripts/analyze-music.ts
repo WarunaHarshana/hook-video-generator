@@ -17,10 +17,12 @@ type BeatEvent = {
 };
 
 type BeatSyncIntensity = "loose" | "tight" | "fast";
+type EditEnergy = "calm" | "balanced" | "aggressive";
 type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 type MusicTempo = "slow" | "medium" | "fast";
 type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
 type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
@@ -43,6 +45,7 @@ type MusicCutPoint = {
   time: number;
   strength: number;
   sectionType: MusicSectionType;
+  role: MusicCutRole;
 };
 
 type MusicEffectEvent = {
@@ -76,6 +79,7 @@ type AnalysisResult = {
     beatSync: {
       enabled: boolean;
       intensity: BeatSyncIntensity;
+      editEnergy: EditEnergy;
     };
     editPlan: MusicEditPlan;
     detected: {
@@ -577,6 +581,40 @@ const minCutGapForSection = (
   return tempo === "fast" ? 0.58 : tempo === "slow" ? 1.2 : 0.82;
 };
 
+const roleForCutPoint = ({
+  time,
+  strength,
+  section,
+  lastCut,
+}: {
+  time: number;
+  strength: number;
+  section: MusicSection | undefined;
+  lastCut: number;
+}): MusicCutRole => {
+  if (time <= 0.08 || section?.type === "intro") {
+    return "transition";
+  }
+
+  if (section?.type === "drop") {
+    return strength >= 0.72 ? "drop" : "strong";
+  }
+
+  if (section?.type === "build") {
+    return strength >= 0.7 ? "strong" : "fill";
+  }
+
+  if (time - lastCut <= 0.42) {
+    return "fill";
+  }
+
+  if (strength >= 0.74) {
+    return "strong";
+  }
+
+  return "beat";
+};
+
 const addEffectEvent = (
   events: MusicEffectEvent[],
   next: MusicEffectEvent,
@@ -657,6 +695,7 @@ const buildMusicEditPlan = ({
     time: 0,
     strength: 1,
     sectionType: sections[0]?.type ?? "intro",
+    role: "transition",
   }];
   let lastCut = 0;
 
@@ -685,6 +724,12 @@ const buildMusicEditPlan = ({
       time: Number(beat.time.toFixed(3)),
       strength: Number(strength.toFixed(3)),
       sectionType: section?.type ?? "verse",
+      role: roleForCutPoint({
+        time: beat.time,
+        strength,
+        section,
+        lastCut,
+      }),
     });
     lastCut = beat.time;
   }
@@ -898,6 +943,7 @@ const main = async () => {
       beatSync: {
         enabled: true,
         intensity: beatStyle.intensity,
+        editEnergy: "balanced",
       },
       editPlan,
       detected: {
