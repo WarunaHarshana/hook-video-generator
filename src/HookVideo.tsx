@@ -327,6 +327,155 @@ const uniqueSortedBoundaries = (boundaries: number[]) => {
     }, []);
 };
 
+const buildDirectorDurations = ({
+  boundaries,
+  config,
+  targetDuration,
+  exactCuts,
+}: {
+  boundaries: number[];
+  config: ReturnType<typeof beatSyncConfig>;
+  targetDuration: number;
+  exactCuts: boolean;
+}) => {
+  const durations: number[] = [];
+
+  if (exactCuts) {
+    for (let index = 1; index < boundaries.length; index += 1) {
+      const duration = boundaries[index] - boundaries[index - 1];
+      if (duration >= 0.08) {
+        durations.push(Number(duration.toFixed(3)));
+      }
+    }
+
+    return durations;
+  }
+
+  let cursor = 0;
+  const maxClips = 180;
+
+  const nextBeatBoundary = () => {
+    const maxDuration = Math.min(config.max, targetDuration - cursor);
+    const minDuration = Math.min(config.min, maxDuration);
+    const minCut = cursor + minDuration;
+    const maxCut = cursor + maxDuration;
+    const candidateBoundaries = boundaries.filter(
+      (boundary) => boundary >= minCut && boundary <= maxCut,
+    );
+    const preferredBoundary =
+      candidateBoundaries[Math.min(config.beatsPerCut - 1, candidateBoundaries.length - 1)];
+
+    if (typeof preferredBoundary !== "number") {
+      return Math.min(targetDuration, cursor + Math.min(config.ideal, maxDuration));
+    }
+
+    return candidateBoundaries.reduce((best, boundary) => {
+      const current = Math.abs(boundary - (cursor + config.ideal));
+      const previous = Math.abs(best - (cursor + config.ideal));
+      return current < previous ? boundary : best;
+    }, preferredBoundary);
+  };
+
+  while (cursor < targetDuration - 0.05 && durations.length < maxClips) {
+    const nextBoundary = nextBeatBoundary();
+    const duration = Math.min(
+      Math.max(0.08, nextBoundary - cursor),
+      targetDuration - cursor,
+    );
+
+    if (duration < 0.08) {
+      break;
+    }
+
+    durations.push(Number(duration.toFixed(3)));
+    cursor += duration;
+  }
+
+  return durations;
+};
+
+const assignBeatDurationsToHighlights = (
+  highlights: HighlightSegment[],
+  durations: number[],
+  targetDuration: number,
+) => {
+  const sources = highlights.map((highlight) => ({
+    highlight,
+    cursor: 0,
+  }));
+  const synced: HighlightSegment[] = [];
+  let outputCursor = 0;
+  let sourcePointer = 0;
+  let previousSource = -1;
+
+  const remainingFor = (index: number) => {
+    return Math.max(0, sources[index].highlight.duration - sources[index].cursor);
+  };
+
+  const chooseSource = (duration: number) => {
+    const allowPreviousOnlyIfNeeded = (index: number) =>
+      sources.length === 1 || index !== previousSource;
+
+    for (let offset = 0; offset < sources.length; offset += 1) {
+      const index = (sourcePointer + offset) % sources.length;
+      if (allowPreviousOnlyIfNeeded(index) && remainingFor(index) >= duration - 0.015) {
+        return index;
+      }
+    }
+
+    for (let offset = 0; offset < sources.length; offset += 1) {
+      const index = (sourcePointer + offset) % sources.length;
+      if (remainingFor(index) >= duration - 0.015) {
+        return index;
+      }
+    }
+
+    for (let offset = 0; offset < sources.length; offset += 1) {
+      const index = (sourcePointer + offset) % sources.length;
+      if (allowPreviousOnlyIfNeeded(index) && remainingFor(index) >= 0.08) {
+        return index;
+      }
+    }
+
+    return sources.findIndex((_, index) => remainingFor(index) >= 0.08);
+  };
+
+  for (const requestedDuration of durations) {
+    if (outputCursor >= targetDuration - 0.05 || synced.length >= 180) {
+      break;
+    }
+
+    const sourceIndex = chooseSource(requestedDuration);
+    if (sourceIndex < 0) {
+      break;
+    }
+
+    const source = sources[sourceIndex];
+    const duration = Math.min(
+      requestedDuration,
+      remainingFor(sourceIndex),
+      targetDuration - outputCursor,
+    );
+
+    if (duration < 0.08) {
+      source.cursor = source.highlight.duration;
+      continue;
+    }
+
+    synced.push({
+      start: Number((source.highlight.start + source.cursor).toFixed(3)),
+      duration: Number(duration.toFixed(3)),
+    });
+
+    source.cursor += duration;
+    outputCursor += duration;
+    previousSource = sourceIndex;
+    sourcePointer = (sourceIndex + 1) % sources.length;
+  }
+
+  return synced;
+};
+
 const effectPaceAt = (
   music: MusicSettings | undefined,
   timelineSeconds: number,
@@ -403,74 +552,13 @@ export const buildBeatSyncedHighlights = (
   }
 
   const boundaries = uniqueSortedBoundaries([0, ...relativeBeats, targetDuration]);
-  const synced: HighlightSegment[] = [];
-  let cursor = 0;
-  let boundaryIndex = 1;
-  const maxClips = 180;
-
-  const nextBeatBoundary = (remainingSource: number) => {
-    const maxDuration = Math.min(config.max, remainingSource, targetDuration - cursor);
-    const minDuration = Math.min(config.min, maxDuration);
-    const minCut = cursor + minDuration;
-    const maxCut = cursor + maxDuration;
-
-    while (boundaryIndex < boundaries.length && boundaries[boundaryIndex] <= cursor + 0.05) {
-      boundaryIndex += 1;
-    }
-
-    const candidateBoundaries = boundaries.filter(
-      (boundary) => boundary >= minCut && boundary <= maxCut,
-    );
-    const preferredBoundary =
-      candidateBoundaries[Math.min(config.beatsPerCut - 1, candidateBoundaries.length - 1)];
-
-    if (typeof preferredBoundary !== "number") {
-      return Math.min(targetDuration, cursor + Math.min(config.ideal, maxDuration));
-    }
-
-    return candidateBoundaries.reduce((best, boundary) => {
-      const current = Math.abs(boundary - (cursor + config.ideal));
-      const previous = Math.abs(best - (cursor + config.ideal));
-      return current < previous ? boundary : best;
-    }, preferredBoundary);
-  };
-
-  for (const source of highlights) {
-    let sourceCursor = 0;
-
-    while (
-      sourceCursor < source.duration - 0.05 &&
-      cursor < targetDuration - 0.05 &&
-      synced.length < maxClips
-    ) {
-      const remainingSource = source.duration - sourceCursor;
-      const nextBoundary = nextBeatBoundary(remainingSource);
-      const duration = Math.min(
-        Math.max(0.08, nextBoundary - cursor),
-        remainingSource,
-        targetDuration - cursor,
-      );
-
-      if (duration < 0.08) {
-        break;
-      }
-
-      synced.push({
-        start: Number((source.start + sourceCursor).toFixed(3)),
-        duration: Number(duration.toFixed(3)),
-      });
-
-      cursor += duration;
-      sourceCursor += duration;
-      if (Math.abs(cursor - nextBoundary) < 0.04) {
-        boundaryIndex += 1;
-      }
-    }
-
-    if (cursor >= targetDuration - 0.05 || synced.length >= maxClips) {
-      break;
-    }
-  }
+  const durations = buildDirectorDurations({
+    boundaries,
+    config,
+    targetDuration,
+    exactCuts: plannedCuts.length >= 1,
+  });
+  const synced = assignBeatDurationsToHighlights(highlights, durations, targetDuration);
 
   return synced.length > 0 ? synced : highlights;
 };
