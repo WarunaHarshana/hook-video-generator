@@ -88,6 +88,7 @@ type AnalysisResult = {
       beatCount: number;
       averageBeatGap: number;
       suggestedBeatStyle: BeatSyncIntensity;
+      suggestedEditEnergy: EditEnergy;
       paceShift: number;
       suggestedEffectPreset: EffectPreset;
       effectReason: string;
@@ -804,6 +805,53 @@ const buildMusicEditPlan = ({
   };
 };
 
+const suggestEditEnergy = ({
+  beatStyle,
+  selectedDuration,
+  editPlan,
+}: {
+  beatStyle: BeatSyncIntensity;
+  selectedDuration: number;
+  editPlan: MusicEditPlan;
+}): EditEnergy => {
+  const cutRate = editPlan.cutPoints.length / Math.max(1, selectedDuration);
+  const effectRate = editPlan.effectEvents.length / Math.max(1, selectedDuration);
+  const dropSections = editPlan.sections.filter((section) => section.type === "drop");
+  const buildSections = editPlan.sections.filter((section) => section.type === "build");
+  const averageDensity = mean(editPlan.sections.map((section) => section.density));
+  const averageEnergy = mean(editPlan.sections.map((section) => section.energy));
+  const strongCutRatio =
+    editPlan.cutPoints.length === 0
+      ? 0
+      : editPlan.cutPoints.filter((cut) =>
+          cut.role === "strong" || cut.role === "drop" || cut.strength >= 0.76,
+        ).length / editPlan.cutPoints.length;
+  const hasDropBuild = dropSections.length > 0 || buildSections.length > 1;
+  const intensityScore =
+    (beatStyle === "fast" ? 0.28 : beatStyle === "loose" ? -0.18 : 0) +
+    clamp(cutRate / 1.4, 0, 1) * 0.24 +
+    clamp(effectRate / 2.2, 0, 1) * 0.16 +
+    clamp(averageDensity, 0, 1) * 0.14 +
+    clamp(averageEnergy, 0, 1) * 0.1 +
+    strongCutRatio * 0.16 +
+    (hasDropBuild ? 0.12 : 0) +
+    (editPlan.energyCurve === "slow-to-fast" ? 0.08 : 0);
+
+  if (intensityScore >= 0.72) {
+    return "aggressive";
+  }
+
+  if (
+    intensityScore <= 0.38 ||
+    beatStyle === "loose" ||
+    (cutRate < 0.75 && strongCutRatio < 0.3)
+  ) {
+    return "calm";
+  }
+
+  return "balanced";
+};
+
 const suggestEffectPreset = ({
   beats,
   selectedStart,
@@ -927,6 +975,11 @@ const main = async () => {
     selectedDuration,
     beatStyle: beatStyle.intensity,
   });
+  const suggestedEditEnergy = suggestEditEnergy({
+    beatStyle: beatStyle.intensity,
+    selectedDuration,
+    editPlan,
+  });
   const result: AnalysisResult = {
     music: {
       src: path.resolve(input),
@@ -943,7 +996,7 @@ const main = async () => {
       beatSync: {
         enabled: true,
         intensity: beatStyle.intensity,
-        editEnergy: "balanced",
+        editEnergy: suggestedEditEnergy,
       },
       editPlan,
       detected: {
@@ -952,6 +1005,7 @@ const main = async () => {
         beatCount: beatStyle.beatCount,
         averageBeatGap: beatStyle.averageGap,
         suggestedBeatStyle: beatStyle.intensity,
+        suggestedEditEnergy,
         paceShift: effect.paceShift,
         suggestedEffectPreset: effect.preset,
         effectReason: effect.reason,

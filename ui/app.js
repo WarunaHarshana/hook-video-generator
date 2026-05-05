@@ -420,11 +420,13 @@ const musicSummary = (music) => {
     : "";
   const style = music.detected?.suggestedBeatStyle || music.beatSync?.intensity;
   const styleText = style ? ` · ${style} style` : "";
+  const energy = music.detected?.suggestedEditEnergy || music.beatSync?.editEnergy;
+  const energyText = energy ? ` · ${energy} energy` : "";
   const plan = music.editPlan;
   const planText = plan
     ? ` · ${plan.energyCurve || "steady"} · ${plan.cutPoints?.length || 0} cuts`
     : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${planText}`;
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${energyText}${planText}`;
 };
 
 const musicDirectorSummary = (music) => {
@@ -440,6 +442,7 @@ const musicDirectorSummary = (music) => {
     : "sections pending";
   const tempo = plan.tempo || "medium";
   const curve = plan.energyCurve || "steady";
+  const energy = music.detected?.suggestedEditEnergy || music.beatSync?.editEnergy || "balanced";
   const cutCount = plan.cutPoints?.length || 0;
   const eventCount = plan.effectEvents?.length || 0;
   const roles = (plan.cutPoints || []).reduce((counts, cut) => {
@@ -452,7 +455,7 @@ const musicDirectorSummary = (music) => {
     .map(([role, count]) => `${count} ${role}`)
     .join(", ");
 
-  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}`;
+  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. Recommended energy: ${energy}. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}`;
 };
 
 const renderBeatTimeline = (music) => {
@@ -595,9 +598,12 @@ const refreshMusicReadiness = () => {
     const style = state.project.music.detected?.suggestedBeatStyle ||
       state.project.music.beatSync?.intensity ||
       "tight";
+    const energy = state.project.music.detected?.suggestedEditEnergy ||
+      state.project.music.beatSync?.editEnergy ||
+      "balanced";
     setMusicNotice(
       "Music analyzed",
-      `Music selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.`,
+      `Music selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}. Edit energy recommended: ${energy}.`,
       100,
     );
     els.musicDirector.textContent = musicDirectorSummary(state.project.music);
@@ -1160,6 +1166,9 @@ const applyJobUpdate = async (job, options = {}) => {
     const style = state.project?.music?.detected?.suggestedBeatStyle ||
       state.project?.music?.beatSync?.intensity ||
       "tight";
+    const energy = state.project?.music?.detected?.suggestedEditEnergy ||
+      state.project?.music?.beatSync?.editEnergy ||
+      "balanced";
     const recommendation = getEffectRecommendation(state.project);
     const effectText = recommendation
       ? ` Effect auto-selected: ${effectLabels[recommendation.preset] || recommendation.preset}.`
@@ -1169,8 +1178,8 @@ const applyJobUpdate = async (job, options = {}) => {
       ? ` Music Director created ${plan.cutPoints?.length || 0} cut points and ${plan.effectEvents?.length || 0} effect hits.`
       : "";
     els.musicStatus.textContent = state.project?.music?.beats?.length
-      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}.${effectText}${directorText}`
-      : `Strongest music section selected for the final hook.${effectText}${directorText}`;
+      ? `Strongest music section selected with ${state.project.music.beats.length} detected beats. Beat style auto-selected: ${style}. Edit energy recommended: ${energy}.${effectText}${directorText}`
+      : `Strongest music section selected for the final hook. Edit energy recommended: ${energy}.${effectText}${directorText}`;
     els.musicDirector.textContent = musicDirectorSummary(state.project?.music);
     return;
   }

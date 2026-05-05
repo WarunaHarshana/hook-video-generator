@@ -115,6 +115,7 @@ type MusicSettings = {
     beatCount?: number;
     averageBeatGap?: number;
     suggestedBeatStyle?: BeatSyncIntensity;
+    suggestedEditEnergy?: EditEnergy;
     paceShift?: number;
     suggestedEffectPreset?: EffectPreset;
     effectReason?: string;
@@ -1896,10 +1897,7 @@ const routeApi = async (
                 ? Boolean(currentProject.music.beatSync.enabled)
                 : true,
               intensity: analyzedMusic.beatSync?.intensity ?? "tight",
-              editEnergy:
-                currentProject.music?.beatSync?.editEnergy ??
-                analyzedMusic.beatSync?.editEnergy ??
-                "balanced",
+              editEnergy: analyzedMusic.beatSync?.editEnergy ?? "balanced",
             },
           };
 
