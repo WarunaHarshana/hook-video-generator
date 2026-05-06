@@ -35,7 +35,7 @@ A full PDF guide with screenshots is included:
 - Auto-recommend edit energy: calm, balanced, or aggressive.
 - View a beat-edit timeline showing sections, cut roles, and effect hits.
 - Make effects react to the analyzed music plan, including build/drop sections and stronger beat hits.
-- Control background music volume and original source audio volume.
+- Control background music volume, original source audio volume, or mute the original video audio when music is enabled.
 - Choose visual effects: clean cuts, auto director, slow motion, kinetic whip, slow-fast ramp, beat punch, flash cuts, or impact shake.
 - Add an HDR-style color boost to SDR video with natural or vivid modes.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.

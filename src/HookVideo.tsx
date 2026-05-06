@@ -112,6 +112,7 @@ export type MusicSettings = {
   duration: number;
   volume: number;
   sourceVolume: number;
+  muteSourceAudio?: boolean;
   fadeSeconds: number;
   loop: boolean;
   enabled: boolean;
@@ -1680,7 +1681,9 @@ export const HookVideo: React.FC<HookVideoInputProps> = ({
   const resolvedReframeMode =
     reframeMode ?? (outputAspectRatio === "source" ? "none" : "auto");
   const sourceVolume = activeMusic
-    ? clamp(Number(activeMusic.sourceVolume), 0, 1)
+    ? activeMusic.muteSourceAudio
+      ? 0
+      : clamp(Number(activeMusic.sourceVolume), 0, 1)
     : 1;
   const originalWidth = Math.max(1, Number(sourceWidth) || 1920);
   const originalHeight = Math.max(1, Number(sourceHeight) || 1080);

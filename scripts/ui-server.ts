@@ -129,6 +129,7 @@ type MusicSettings = {
   duration: number;
   volume: number;
   sourceVolume: number;
+  muteSourceAudio?: boolean;
   fadeSeconds: number;
   loop: boolean;
   enabled: boolean;
@@ -559,6 +560,7 @@ const normalizeMusicSettings = (value: unknown): MusicSettings | undefined => {
     duration: Math.max(0.1, normalizeNumber(input.duration, 15)),
     volume: clampNumber(input.volume, 0, 1, 0.35),
     sourceVolume: clampNumber(input.sourceVolume, 0, 1, 0.75),
+    muteSourceAudio: Boolean(input.muteSourceAudio),
     fadeSeconds: clampNumber(input.fadeSeconds, 0, 10, 1),
     loop: Boolean(input.loop),
     enabled: input.enabled !== false,
@@ -1983,6 +1985,9 @@ const routeApi = async (
           }
           const music = {
             ...analyzedMusic,
+            sourceVolume: currentProject.music?.sourceVolume ?? analyzedMusic.sourceVolume,
+            muteSourceAudio:
+              currentProject.music?.muteSourceAudio ?? analyzedMusic.muteSourceAudio,
             beatSync: {
               enabled: currentProject.music?.beatSync
                 ? Boolean(currentProject.music.beatSync.enabled)

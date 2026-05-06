@@ -46,6 +46,7 @@ const els = {
   musicVolume: document.querySelector("#musicVolume"),
   sourceVolume: document.querySelector("#sourceVolume"),
   musicEnabled: document.querySelector("#musicEnabled"),
+  muteSourceAudio: document.querySelector("#muteSourceAudio"),
   useEntireMusic: document.querySelector("#useEntireMusic"),
   beatSyncEnabled: document.querySelector("#beatSyncEnabled"),
   beatSyncIntensity: document.querySelector("#beatSyncIntensity"),
@@ -249,8 +250,10 @@ const setBusy = (busy) => {
   els.musicStart.disabled = busy || !hasMusicSource || els.useEntireMusic.checked;
   els.musicDuration.disabled = busy || !hasMusicSource || els.useEntireMusic.checked;
   els.musicVolume.disabled = busy || !hasMusicSource;
-  els.sourceVolume.disabled = busy || !hasMusicSource;
+  els.sourceVolume.disabled =
+    busy || !hasMusicSource || !els.musicEnabled.checked || els.muteSourceAudio.checked;
   els.musicEnabled.disabled = busy || !hasMusicSource;
+  els.muteSourceAudio.disabled = busy || !hasMusicSource || !els.musicEnabled.checked;
   const hasAnalyzedBeats = Boolean(state.project?.music?.beats?.length);
   els.beatSyncEnabled.disabled = busy || !hasMusicSource || !hasAnalyzedBeats;
   els.beatSyncIntensity.disabled =
@@ -385,6 +388,7 @@ const musicFromControls = () => {
     duration: Math.max(0.1, Number(els.musicDuration.value) || totalHighlightSeconds() || 15),
     volume: Math.max(0, Math.min(Number(els.musicVolume.value) || 0, 1)),
     sourceVolume: Math.max(0, Math.min(Number(els.sourceVolume.value) || 0, 1)),
+    muteSourceAudio: els.muteSourceAudio.checked,
     fadeSeconds: existingMusic.fadeSeconds ?? 1,
     loop: true,
     enabled: els.musicEnabled.checked,
@@ -455,7 +459,8 @@ const musicSummary = (music) => {
   const planText = plan
     ? ` · ${plan.energyCurve || "steady"} · ${plan.cutPoints?.length || 0} cuts`
     : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${energyText}${planText}`;
+  const sourceAudioText = music.muteSourceAudio ? " · source muted" : "";
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${energyText}${planText}${sourceAudioText}`;
 };
 
 const musicDirectorSummary = (music) => {
@@ -582,6 +587,7 @@ const renderMusicControls = (music) => {
   els.musicVolume.value = music ? music.volume : 0.35;
   els.sourceVolume.value = music ? music.sourceVolume : 0.75;
   els.musicEnabled.checked = music ? music.enabled !== false : false;
+  els.muteSourceAudio.checked = Boolean(music?.muteSourceAudio);
   els.useEntireMusic.checked = Boolean(music?.useEntireFile);
   state.musicFileDuration = music?.detected?.audioDuration ?? state.musicFileDuration;
   applyEntireMusicFile();
@@ -1656,6 +1662,7 @@ els.analyzedMusicPreview.addEventListener("timeupdate", () => {
   els.musicVolume,
   els.sourceVolume,
   els.musicEnabled,
+  els.muteSourceAudio,
   els.useEntireMusic,
   els.beatSyncEnabled,
   els.beatSyncIntensity,

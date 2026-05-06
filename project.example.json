@@ -13,6 +13,7 @@
     "duration": 9,
     "volume": 0.35,
     "sourceVolume": 0.75,
+    "muteSourceAudio": false,
     "fadeSeconds": 1,
     "loop": true,
     "enabled": false

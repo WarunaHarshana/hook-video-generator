@@ -70,6 +70,7 @@ type AnalysisResult = {
     duration: number;
     volume: number;
     sourceVolume: number;
+    muteSourceAudio?: boolean;
     fadeSeconds: number;
     loop: boolean;
     enabled: boolean;
@@ -987,6 +988,7 @@ const main = async () => {
       duration: selectedDuration,
       volume: 0.35,
       sourceVolume: 0.75,
+      muteSourceAudio: false,
       fadeSeconds: 1,
       loop: true,
       enabled: true,
