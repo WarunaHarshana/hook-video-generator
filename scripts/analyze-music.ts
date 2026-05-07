@@ -26,6 +26,11 @@ type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-documentary"
+  | "whip-cut"
+  | "drop-burst"
+  | "cinematic-ramp"
+  | "hard-beat-cuts"
   | "smooth-slow"
   | "fast-kinetic"
   | "slow-fast-mix"
@@ -881,7 +886,7 @@ const suggestEffectPreset = ({
 
   if (paceShift >= 0.18 && secondHalfGap > 0 && secondHalfGap <= 0.82) {
     return {
-      preset: "slow-fast-mix",
+      preset: "cinematic-ramp",
       paceShift,
       reason: "music starts slower and gets denser later",
     };
@@ -889,7 +894,7 @@ const suggestEffectPreset = ({
 
   if (beatStyle === "fast") {
     return {
-      preset: "fast-kinetic",
+      preset: energy >= 0.55 ? "drop-burst" : "whip-cut",
       paceShift,
       reason: "music has dense, fast beats",
     };
@@ -897,7 +902,7 @@ const suggestEffectPreset = ({
 
   if (beatStyle === "loose") {
     return {
-      preset: "smooth-slow",
+      preset: "smooth-documentary",
       paceShift,
       reason: "music has slower spacing between beats",
     };

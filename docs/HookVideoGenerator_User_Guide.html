@@ -680,7 +680,9 @@
         The Effects menu can still be changed manually. The recommendation
         below it is only a starting point based on analyzed video motion,
         dialogue/face signals, audio spikes, per-highlight variety, and music
-        beat pacing.
+        beat pacing. Effect presets are color-safe: they use timing, motion,
+        blur, fades, or cuts. Color changes only come from the separate Color
+        boost control.
       </div>
       <table>
         <thead>
@@ -698,46 +700,50 @@
             <td>Auto director</td>
             <td>
               Uses the Music Director plan, beat strength, and local music pace
-              to choose between slow motion, beat punch, impact, and kinetic
-              whip moments.
+              to choose between smooth, punch, drop, impact, and whip moments.
             </td>
           </tr>
           <tr>
-            <td>Slow motion</td>
+            <td>Smooth documentary</td>
             <td>
-              Slows the source playback, softens contrast, and adds a calm
-              vignette for slower songs or emotional moments.
+              Slows playback slightly and uses gentle easing for dialogue,
+              faces, slower songs, or emotional moments.
             </td>
           </tr>
           <tr>
-            <td>Kinetic whip</td>
+            <td>Whip cut</td>
             <td>
-              Speeds the clip up, adds restrained motion blur, speed-line
-              texture, and quick side movement for dense fast beats.
+              Uses short directional movement and restrained blur during fast
+              beat changes.
             </td>
           </tr>
           <tr>
-            <td>Slow-fast ramp</td>
+            <td>Cinematic ramp</td>
             <td>
               Follows songs that build from slow to fast, moving from slower
-              playback into punchier and faster kinetic moments using the
-              detected energy curve. If no music is analyzed, it still uses a
-              gentle beginning-to-end ramp.
+              playback into punchier and faster motion using the detected
+              energy curve.
             </td>
           </tr>
           <tr>
             <td>Beat punch</td>
-            <td>Adds a short impact pulse at cut points without changing speed.</td>
+            <td>Adds a small scale punch at cut points without changing color.</td>
           </tr>
           <tr>
-            <td>Flash cuts</td>
-            <td>Adds a brighter flash on clip changes.</td>
+            <td>Drop burst</td>
+            <td>
+              Uses faster playback, tighter cuts, and stronger motion on drops.
+            </td>
+          </tr>
+          <tr>
+            <td>Hard beat cuts</td>
+            <td>Uses rapid hard cuts and tiny movement accents with no flash.</td>
           </tr>
           <tr>
             <td>Impact shake</td>
             <td>
-              Slows the clip down and adds heavier shake/dark vignette on
-              impact cuts when auto reframe is active.
+              Adds a short damped shake on impact cuts when auto reframe is
+              active.
             </td>
           </tr>
         </tbody>

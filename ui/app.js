@@ -99,12 +99,26 @@ const seconds = (value) => {
 const effectLabels = {
   clean: "Clean cuts",
   auto: "Auto director",
+  "smooth-documentary": "Smooth documentary",
+  "whip-cut": "Whip cut",
+  "drop-burst": "Drop burst",
+  "cinematic-ramp": "Cinematic ramp",
+  "hard-beat-cuts": "Hard beat cuts",
   "smooth-slow": "Slow motion",
   "fast-kinetic": "Kinetic whip",
   "slow-fast-mix": "Slow-fast ramp",
   "beat-punch": "Beat punch",
   "flash-cuts": "Flash cuts",
   "impact-shake": "Impact shake",
+};
+
+const displayEffectPreset = (preset) => {
+  return {
+    "smooth-slow": "smooth-documentary",
+    "fast-kinetic": "whip-cut",
+    "slow-fast-mix": "cinematic-ramp",
+    "flash-cuts": "hard-beat-cuts",
+  }[preset] || preset || "clean";
 };
 
 const escapeHtml = (value) => {
@@ -180,11 +194,11 @@ const applyRecommendedEffectToControls = (project = state.project) => {
     return false;
   }
 
-  els.effectPreset.value = recommendation.preset;
+  els.effectPreset.value = displayEffectPreset(recommendation.preset);
   if (state.project) {
     state.project = {
       ...state.project,
-      effectPreset: recommendation.preset,
+      effectPreset: displayEffectPreset(recommendation.preset),
     };
   }
 
@@ -1030,7 +1044,7 @@ const renderProject = (serverState = {}) => {
     els.sourcePath.value = project.src;
     els.titleText.value = project.title || "";
     els.outputAspectRatio.value = project.outputAspectRatio || "source";
-    els.effectPreset.value = project.effectPreset || "clean";
+    els.effectPreset.value = displayEffectPreset(project.effectPreset);
     els.colorEnhancement.value = project.colorEnhancement || "off";
     els.autoReframe.checked =
       (project.outputAspectRatio || "source") !== "source" &&

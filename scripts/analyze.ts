@@ -35,6 +35,11 @@ type HighlightSegment = {
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-documentary"
+  | "whip-cut"
+  | "drop-burst"
+  | "cinematic-ramp"
+  | "hard-beat-cuts"
   | "smooth-slow"
   | "fast-kinetic"
   | "slow-fast-mix"
@@ -1140,7 +1145,7 @@ const recommendEffectFromVideo = (
 
   if (dialogueFocus >= 0.62 && summary.motionScore < 0.55) {
     return {
-      preset: "smooth-slow",
+      preset: "smooth-documentary",
       source: "video",
       confidence: Number(clamp(dialogueFocus, 0.5, 0.92).toFixed(2)),
       reason: "dialogue and face-heavy highlights with calmer motion",
@@ -1149,7 +1154,7 @@ const recommendEffectFromVideo = (
 
   if (fastAction >= 0.66) {
     return {
-      preset: "fast-kinetic",
+      preset: "whip-cut",
       source: "video",
       confidence: Number(clamp(fastAction, 0.55, 0.94).toFixed(2)),
       reason: "high motion and frequent shot changes in the selected hooks",

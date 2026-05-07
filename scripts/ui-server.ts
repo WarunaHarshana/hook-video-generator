@@ -58,6 +58,11 @@ type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-documentary"
+  | "whip-cut"
+  | "drop-burst"
+  | "cinematic-ramp"
+  | "hard-beat-cuts"
   | "smooth-slow"
   | "fast-kinetic"
   | "slow-fast-mix"
@@ -307,6 +312,11 @@ const colorEnhancements = new Set<ColorEnhancement>([
 const effectPresets = new Set<EffectPreset>([
   "clean",
   "auto",
+  "smooth-documentary",
+  "whip-cut",
+  "drop-burst",
+  "cinematic-ramp",
+  "hard-beat-cuts",
   "smooth-slow",
   "fast-kinetic",
   "slow-fast-mix",
@@ -664,12 +674,13 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
 
   if (music?.detected?.suggestedEffectPreset || music?.editPlan) {
     if (
+      musicEffect === "cinematic-ramp" ||
       musicEffect === "slow-fast-mix" ||
       editCurve === "slow-to-fast" ||
       (paceShift >= 0.18 && beatStyle === "fast")
     ) {
       return {
-        preset: "slow-fast-mix",
+        preset: "cinematic-ramp",
         source: "video+music",
         confidence: editCurve === "slow-to-fast" ? 0.92 : 0.88,
         reason:
@@ -678,9 +689,15 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
       };
     }
 
-    if (musicEffect === "fast-kinetic" || beatStyle === "fast" || editTempo === "fast") {
+    if (
+      musicEffect === "drop-burst" ||
+      musicEffect === "whip-cut" ||
+      musicEffect === "fast-kinetic" ||
+      beatStyle === "fast" ||
+      editTempo === "fast"
+    ) {
       return {
-        preset: motion >= 0.5 || shotDensity >= 0.5 ? "fast-kinetic" : "beat-punch",
+        preset: motion >= 0.5 || shotDensity >= 0.5 ? "whip-cut" : "beat-punch",
         source: "video+music",
         confidence: 0.82,
         reason:
@@ -690,9 +707,14 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
       };
     }
 
-    if (musicEffect === "smooth-slow" || beatStyle === "loose" || editTempo === "slow") {
+    if (
+      musicEffect === "smooth-documentary" ||
+      musicEffect === "smooth-slow" ||
+      beatStyle === "loose" ||
+      editTempo === "slow"
+    ) {
       return {
-        preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-slow" : "auto",
+        preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-documentary" : "auto",
         source: "video+music",
         confidence: 0.78,
         reason:
