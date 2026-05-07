@@ -35,6 +35,15 @@ type HighlightSegment = {
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-velocity"
+  | "velocity-ramp"
+  | "beat-bounce"
+  | "drop-whip"
+  | "freeze-hit"
+  | "match-push"
+  | "snap-zoom"
+  | "glitch-lite"
+  | "slow-fast-builder"
   | "smooth-documentary"
   | "whip-cut"
   | "drop-burst"
@@ -1145,7 +1154,7 @@ const recommendEffectFromVideo = (
 
   if (dialogueFocus >= 0.62 && summary.motionScore < 0.55) {
     return {
-      preset: "smooth-documentary",
+      preset: "smooth-velocity",
       source: "video",
       confidence: Number(clamp(dialogueFocus, 0.5, 0.92).toFixed(2)),
       reason: "dialogue and face-heavy highlights with calmer motion",
@@ -1154,7 +1163,7 @@ const recommendEffectFromVideo = (
 
   if (fastAction >= 0.66) {
     return {
-      preset: "whip-cut",
+      preset: summary.shotDensityScore >= 0.62 ? "match-push" : "velocity-ramp",
       source: "video",
       confidence: Number(clamp(fastAction, 0.55, 0.94).toFixed(2)),
       reason: "high motion and frequent shot changes in the selected hooks",
@@ -1163,7 +1172,7 @@ const recommendEffectFromVideo = (
 
   if (summary.spikeScore >= 0.62) {
     return {
-      preset: "beat-punch",
+      preset: "beat-bounce",
       source: "video",
       confidence: Number(clamp(summary.spikeScore, 0.52, 0.9).toFixed(2)),
       reason: "strong audio spikes around the hook moments",

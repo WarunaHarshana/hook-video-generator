@@ -52,6 +52,15 @@ export type EditEnergy = "calm" | "balanced" | "aggressive";
 export type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-velocity"
+  | "velocity-ramp"
+  | "beat-bounce"
+  | "drop-whip"
+  | "freeze-hit"
+  | "match-push"
+  | "snap-zoom"
+  | "glitch-lite"
+  | "slow-fast-builder"
   | "smooth-documentary"
   | "whip-cut"
   | "drop-burst"
@@ -72,7 +81,17 @@ export type BeatEvent = {
 export type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 export type MusicTempo = "slow" | "medium" | "fast";
 export type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
-export type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+export type MusicEffectEventType =
+  | "pulse"
+  | "flash"
+  | "impact"
+  | "whip"
+  | "bounce"
+  | "freeze"
+  | "snap"
+  | "ramp"
+  | "push"
+  | "glitch";
 export type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 
 export type MusicSection = {
@@ -154,12 +173,15 @@ type ClipWithTiming = HighlightSegment & {
 type EffectPace = "slow" | "medium" | "fast";
 type ResolvedEffectPreset =
   | "clean"
-  | "smooth-documentary"
-  | "whip-cut"
-  | "drop-burst"
-  | "beat-punch"
-  | "hard-beat-cuts"
-  | "impact-shake";
+  | "smooth-velocity"
+  | "velocity-ramp"
+  | "beat-bounce"
+  | "drop-whip"
+  | "freeze-hit"
+  | "match-push"
+  | "snap-zoom"
+  | "glitch-lite"
+  | "slow-fast-builder";
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
@@ -322,7 +344,9 @@ const planStrengthAt = (
   const sectionEnergy = sectionEnergyAt(music, timelineSeconds);
   const eventStrength = Math.max(
     effectEventPulseAt(music, timelineSeconds, ["pulse"]),
+    effectEventPulseAt(music, timelineSeconds, ["bounce", "snap", "ramp"]),
     effectEventPulseAt(music, timelineSeconds, ["impact"]),
+    effectEventPulseAt(music, timelineSeconds, ["freeze", "push", "glitch"]),
   );
 
   return clamp(beatStrength * 0.42 + sectionEnergy * 0.36 + eventStrength * 0.32, 0.18, 1);
@@ -1030,28 +1054,32 @@ const resolveEffectPreset = (
   effectStrength: number,
   effectPace: EffectPace,
 ): ResolvedEffectPreset => {
-  if (preset === "smooth-slow") {
-    return "smooth-documentary";
+  if (preset === "smooth-slow" || preset === "smooth-documentary") {
+    return "smooth-velocity";
   }
 
-  if (preset === "fast-kinetic") {
-    return "whip-cut";
+  if (preset === "fast-kinetic" || preset === "whip-cut" || preset === "drop-burst") {
+    return "drop-whip";
   }
 
-  if (preset === "flash-cuts") {
-    return "hard-beat-cuts";
+  if (preset === "flash-cuts" || preset === "hard-beat-cuts") {
+    return "match-push";
   }
 
-  if (preset === "slow-fast-mix" || preset === "cinematic-ramp") {
-    if (effectPace === "slow") {
-      return "smooth-documentary";
-    }
+  if (preset === "impact-shake") {
+    return "freeze-hit";
+  }
 
-    if (effectPace === "fast") {
-      return "drop-burst";
-    }
+  if (preset === "beat-punch") {
+    return "beat-bounce";
+  }
 
-    return "beat-punch";
+  if (
+    preset === "slow-fast-mix" ||
+    preset === "cinematic-ramp" ||
+    preset === "slow-fast-builder"
+  ) {
+    return "slow-fast-builder";
   }
 
   if (preset !== "auto") {
@@ -1059,18 +1087,18 @@ const resolveEffectPreset = (
   }
 
   if (effectPace === "slow") {
-    return "smooth-documentary";
+    return "smooth-velocity";
   }
 
   if (effectPace === "fast") {
-    return effectStrength >= 0.62 ? "drop-burst" : "whip-cut";
+    return effectStrength >= 0.72 ? "drop-whip" : "velocity-ramp";
   }
 
   if (effectStrength >= 0.72) {
-    return "beat-punch";
+    return "beat-bounce";
   }
 
-  return "smooth-documentary";
+  return "smooth-velocity";
 };
 
 const effectPlaybackRate = (
@@ -1079,7 +1107,7 @@ const effectPlaybackRate = (
   effectPace: EffectPace,
   effectStrength: number,
 ) => {
-  if (requestedPreset === "slow-fast-mix" || requestedPreset === "cinematic-ramp") {
+  if (resolvedPreset === "slow-fast-builder") {
     if (effectPace === "slow") {
       return 0.78;
     }
@@ -1091,28 +1119,32 @@ const effectPlaybackRate = (
     return 0.94;
   }
 
-  if (resolvedPreset === "smooth-documentary") {
-    return 0.82;
+  if (resolvedPreset === "smooth-velocity") {
+    return 0.84;
   }
 
-  if (resolvedPreset === "whip-cut") {
-    return 1.04 + clamp(effectStrength, 0, 1) * 0.05;
+  if (resolvedPreset === "velocity-ramp") {
+    return 0.96 + clamp(effectStrength, 0, 1) * 0.16;
   }
 
-  if (resolvedPreset === "drop-burst") {
-    return 1.08 + clamp(effectStrength, 0, 1) * 0.08;
+  if (resolvedPreset === "drop-whip") {
+    return 1.08 + clamp(effectStrength, 0, 1) * 0.1;
   }
 
-  if (resolvedPreset === "beat-punch") {
+  if (resolvedPreset === "beat-bounce" || resolvedPreset === "snap-zoom") {
     return 1;
   }
 
-  if (resolvedPreset === "impact-shake") {
-    return 0.92;
+  if (resolvedPreset === "freeze-hit") {
+    return 0.86;
   }
 
-  if (resolvedPreset === "hard-beat-cuts") {
-    return 1.02;
+  if (resolvedPreset === "match-push") {
+    return 1.03;
+  }
+
+  if (resolvedPreset === "glitch-lite") {
+    return 1.08;
   }
 
   return 1;
@@ -1129,13 +1161,13 @@ const cutPulse = (
   }
 
   const maxFrames =
-    preset === "smooth-documentary"
+    preset === "smooth-velocity"
       ? 28
-      : preset === "impact-shake"
-        ? 9
-        : preset === "whip-cut"
+      : preset === "freeze-hit"
+        ? 10
+        : preset === "drop-whip" || preset === "match-push" || preset === "glitch-lite"
           ? 5
-          : preset === "drop-burst" || preset === "hard-beat-cuts"
+          : preset === "snap-zoom"
             ? 4
             : 7;
   const pulseFrames = Math.max(
@@ -1150,17 +1182,21 @@ const cutPulse = (
   });
 
   const presetStrength =
-    preset === "smooth-documentary"
+    preset === "smooth-velocity"
       ? 0.1
-      : preset === "whip-cut"
-        ? 0.82
-        : preset === "drop-burst"
+      : preset === "drop-whip"
+        ? 0.92
+        : preset === "snap-zoom"
           ? 1
-        : preset === "beat-punch"
+        : preset === "beat-bounce"
           ? 0.72
-          : preset === "impact-shake"
+          : preset === "freeze-hit"
             ? 0.74
-            : 1;
+            : preset === "match-push"
+              ? 0.82
+              : preset === "glitch-lite"
+                ? 0.9
+                : 1;
 
   return pulse * clamp(effectStrength, 0.18, 1) * presetStrength;
 };
@@ -1174,15 +1210,16 @@ const clipVisualOpacity = (
   if (
     requestedPreset === "slow-fast-mix" ||
     requestedPreset === "cinematic-ramp" ||
-    resolvedPreset === "whip-cut" ||
-    resolvedPreset === "drop-burst" ||
-    resolvedPreset === "hard-beat-cuts"
+    requestedPreset === "slow-fast-builder" ||
+    resolvedPreset === "drop-whip" ||
+    resolvedPreset === "match-push" ||
+    resolvedPreset === "glitch-lite"
   ) {
     return 1;
   }
 
   const fadeFrames =
-    resolvedPreset === "smooth-documentary"
+    resolvedPreset === "smooth-velocity"
       ? 5
       : resolvedPreset === "clean"
         ? 2
@@ -1214,12 +1251,12 @@ const effectVideoFilter = (
 ) => {
   const color = colorEnhancementFilter(colorEnhancement);
   const blur =
-    preset === "whip-cut"
-      ? pulse * 0.7
-      : preset === "drop-burst"
-        ? pulse * 0.52
-        : preset === "impact-shake"
-          ? pulse * 0.34
+    preset === "drop-whip"
+      ? pulse * 0.78
+      : preset === "velocity-ramp" || preset === "match-push"
+        ? pulse * 0.46
+        : preset === "freeze-hit" || preset === "glitch-lite"
+          ? pulse * 0.28
           : 0;
   const effect = blur > 0.01 ? `blur(${blur.toFixed(2)}px)` : "none";
 
@@ -1271,17 +1308,29 @@ const SourceClip: React.FC<{
   );
   const timelineSeconds = (clip.from + frame) / fps;
   const musicPulse = effectEventPulseAt(music, timelineSeconds, ["pulse"]);
-  const flashPulse = effectEventPulseAt(music, timelineSeconds, ["flash"]);
-  const impactPulse = effectEventPulseAt(music, timelineSeconds, ["impact"]);
+  const bouncePulse = effectEventPulseAt(music, timelineSeconds, ["bounce", "pulse"]);
+  const snapPulse = effectEventPulseAt(music, timelineSeconds, ["snap", "flash"]);
+  const rampPulse = effectEventPulseAt(music, timelineSeconds, ["ramp"]);
+  const impactPulse = effectEventPulseAt(music, timelineSeconds, ["impact", "freeze"]);
   const whipPulse = effectEventPulseAt(music, timelineSeconds, ["whip"]);
+  const pushPulse = effectEventPulseAt(music, timelineSeconds, ["push"]);
+  const glitchPulse = effectEventPulseAt(music, timelineSeconds, ["glitch"]);
   const reactivePulse = Math.max(
     pulse,
     musicPulse * 0.68,
-    flashPulse * 0.7,
+    bouncePulse * 0.64,
+    snapPulse * 0.88,
+    rampPulse * 0.72,
     impactPulse,
     whipPulse * 0.82,
+    pushPulse * 0.78,
+    glitchPulse * 0.84,
   );
-  const styledPulse = effectPreset === "slow-fast-mix" ? reactivePulse * 0.45 : reactivePulse;
+  const isBuilderPreset =
+    effectPreset === "slow-fast-mix" ||
+    effectPreset === "cinematic-ramp" ||
+    effectPreset === "slow-fast-builder";
+  const styledPulse = isBuilderPreset ? reactivePulse * 0.58 : reactivePulse;
   const playbackRate = effectPlaybackRate(
     effectPreset,
     resolvedPreset,
@@ -1305,83 +1354,126 @@ const SourceClip: React.FC<{
   });
   const movementEnabled = autoReframe;
   const endScale =
-    !movementEnabled || resolvedPreset === "clean" || resolvedPreset === "hard-beat-cuts"
+    !movementEnabled || resolvedPreset === "clean" || resolvedPreset === "match-push"
       ? 1
-      : resolvedPreset === "smooth-documentary"
-        ? 1.035
-        : resolvedPreset === "whip-cut"
-          ? 1.022
-          : resolvedPreset === "drop-burst"
+      : resolvedPreset === "smooth-velocity"
+        ? 1.038
+        : resolvedPreset === "velocity-ramp"
+          ? 1.028
+          : resolvedPreset === "drop-whip" || resolvedPreset === "slow-fast-builder"
             ? 1.018
-            : resolvedPreset === "beat-punch"
+            : resolvedPreset === "beat-bounce" || resolvedPreset === "snap-zoom"
               ? 1.014
               : 1.018;
   const scale = interpolate(frame, [0, clip.durationInFrames], [1.002, endScale], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing:
-      resolvedPreset === "smooth-documentary"
+      resolvedPreset === "smooth-velocity"
         ? Easing.inOut(Easing.cubic)
         : Easing.out(Easing.cubic),
   });
+  const rampScale = rampPulse * 0.018;
+  const bounceScale = bouncePulse * 0.026;
+  const snapScale = snapPulse * 0.052;
+  const freezeScale = impactPulse * (resolvedPreset === "freeze-hit" ? 0.02 : 0.012);
   const effectScale =
     movementEnabled &&
-    (resolvedPreset === "whip-cut" ||
-      resolvedPreset === "drop-burst" ||
-      resolvedPreset === "beat-punch" ||
-      resolvedPreset === "impact-shake")
+    (resolvedPreset === "velocity-ramp" ||
+      resolvedPreset === "drop-whip" ||
+      resolvedPreset === "beat-bounce" ||
+      resolvedPreset === "freeze-hit" ||
+      resolvedPreset === "snap-zoom" ||
+      resolvedPreset === "slow-fast-builder" ||
+      resolvedPreset === "glitch-lite")
       ? styledPulse *
-        (resolvedPreset === "whip-cut"
-          ? 0.034
-          : resolvedPreset === "drop-burst"
+        (resolvedPreset === "velocity-ramp"
+          ? 0.03
+          : resolvedPreset === "drop-whip"
             ? 0.052
-            : resolvedPreset === "beat-punch"
+            : resolvedPreset === "beat-bounce"
               ? 0.032
-              : 0.028)
+              : resolvedPreset === "snap-zoom"
+                ? 0.048
+                : resolvedPreset === "slow-fast-builder"
+                  ? 0.024
+                  : resolvedPreset === "glitch-lite"
+                    ? 0.018
+                    : 0.028)
       : 0;
   const shakePreset =
-    resolvedPreset === "impact-shake"
-      ? 1
-      : resolvedPreset === "drop-burst"
+    resolvedPreset === "freeze-hit"
+      ? 0.45
+      : resolvedPreset === "glitch-lite"
+        ? 0.5
+        : resolvedPreset === "drop-whip"
         ? 0.28
-        : resolvedPreset === "whip-cut"
+        : resolvedPreset === "velocity-ramp"
           ? 0.16
         : 0;
   const shakeAmount =
     movementEnabled && shakePreset > 0
-      ? Math.sin(frame * 2.1 + index) *
-        Math.max(styledPulse, impactPulse * 1.15, whipPulse * 0.72) *
+      ? Math.sin(frame * (resolvedPreset === "glitch-lite" ? 3.7 : 2.1) + index) *
+        Math.max(styledPulse, impactPulse * 1.15, whipPulse * 0.72, glitchPulse) *
         Math.max(1.5, width * 0.0026) *
         (0.35 + clip.effectStrength * 0.42) *
         shakePreset
       : 0;
   const direction = index % 2 === 0 ? 1 : -1;
   const slideAmount =
-    movementEnabled && (resolvedPreset === "whip-cut" || resolvedPreset === "drop-burst")
+    movementEnabled &&
+    (resolvedPreset === "velocity-ramp" ||
+      resolvedPreset === "drop-whip" ||
+      resolvedPreset === "match-push" ||
+      resolvedPreset === "slow-fast-builder")
       ? direction *
-        styledPulse *
-        Math.max(3, width * (resolvedPreset === "drop-burst" ? 0.018 : 0.014))
+        Math.max(styledPulse, pushPulse * 0.95, whipPulse * 0.8, rampPulse * 0.6) *
+        Math.max(
+          3,
+          width *
+            (resolvedPreset === "match-push"
+              ? 0.03
+              : resolvedPreset === "drop-whip"
+                ? 0.02
+                : 0.014),
+        )
       : 0;
   const rotation =
     movementEnabled &&
-    (resolvedPreset === "whip-cut" ||
-      resolvedPreset === "drop-burst" ||
-      resolvedPreset === "impact-shake")
-      ? Math.sin(frame * (resolvedPreset === "impact-shake" ? 2.6 : 1.35) + index) *
-        styledPulse *
-        (resolvedPreset === "impact-shake"
-          ? 0.42
-          : resolvedPreset === "drop-burst"
+    (resolvedPreset === "velocity-ramp" ||
+      resolvedPreset === "drop-whip" ||
+      resolvedPreset === "freeze-hit" ||
+      resolvedPreset === "glitch-lite")
+      ? Math.sin(frame * (resolvedPreset === "freeze-hit" ? 2.6 : 1.35) + index) *
+        Math.max(styledPulse, glitchPulse * 0.85) *
+        (resolvedPreset === "freeze-hit"
+          ? 0.26
+          : resolvedPreset === "drop-whip"
             ? 0.28
-            : 0.2)
+            : resolvedPreset === "glitch-lite"
+              ? 0.18
+              : 0.2)
       : 0;
-  const cinematicRampScaleFactor =
-    effectPreset === "slow-fast-mix" || effectPreset === "cinematic-ramp" ? 0.55 : 1;
+  const freezeNudge =
+    movementEnabled && resolvedPreset === "freeze-hit"
+      ? Math.round(Math.sin(frame * Math.PI) * impactPulse * 2)
+      : 0;
+  const glitchNudge =
+    movementEnabled && resolvedPreset === "glitch-lite"
+      ? Math.round(Math.sin(frame * 4.6 + index) * glitchPulse * Math.max(2, width * 0.003))
+      : 0;
+  const cinematicRampScaleFactor = isBuilderPreset ? 0.55 : 1;
+  const totalScale =
+    scale +
+    effectScale * cinematicRampScaleFactor +
+    (movementEnabled ? rampScale + bounceScale + snapScale + freezeScale : 0);
   const transform = movementEnabled
-    ? `translate3d(${shakeAmount + slideAmount}px, 0, 0) scale(${
-        scale + effectScale * cinematicRampScaleFactor
-      }) rotate(${rotation}deg)`
+    ? `translate3d(${shakeAmount + slideAmount + freezeNudge + glitchNudge}px, 0, 0) scale(${totalScale}) rotate(${rotation}deg)`
     : undefined;
+  const clipPath =
+    movementEnabled && resolvedPreset === "glitch-lite" && glitchPulse > 0.05
+      ? `inset(${(glitchPulse * 1.8).toFixed(2)}% 0 ${(glitchPulse * 1.2).toFixed(2)}% 0)`
+      : undefined;
 
   return (
     <AbsoluteFill style={{backgroundColor: "#000", overflow: "hidden"}}>
@@ -1399,6 +1491,7 @@ const SourceClip: React.FC<{
           objectPosition,
           opacity: visualOpacity,
           transform,
+          clipPath,
           filter: effectVideoFilter(colorEnhancement, resolvedPreset, styledPulse),
         }}
       />

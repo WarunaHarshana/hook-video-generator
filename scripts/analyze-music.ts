@@ -21,11 +21,30 @@ type EditEnergy = "calm" | "balanced" | "aggressive";
 type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 type MusicTempo = "slow" | "medium" | "fast";
 type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
-type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+type MusicEffectEventType =
+  | "pulse"
+  | "flash"
+  | "impact"
+  | "whip"
+  | "bounce"
+  | "freeze"
+  | "snap"
+  | "ramp"
+  | "push"
+  | "glitch";
 type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-velocity"
+  | "velocity-ramp"
+  | "beat-bounce"
+  | "drop-whip"
+  | "freeze-hit"
+  | "match-push"
+  | "snap-zoom"
+  | "glitch-lite"
+  | "slow-fast-builder"
   | "smooth-documentary"
   | "whip-cut"
   | "drop-burst"
@@ -760,6 +779,32 @@ const buildMusicEditPlan = ({
       );
     }
 
+    if (strength >= 0.48 && section?.type !== "intro") {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
+          type: "bounce",
+          strength: Number((strength * 0.92).toFixed(3)),
+          duration: 0.22,
+        },
+        tempo === "fast" ? 0.42 : 0.62,
+      );
+    }
+
+    if ((section?.type === "build" || section?.type === "drop") && strength >= 0.5) {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
+          type: "ramp",
+          strength: Number(strength.toFixed(3)),
+          duration: section?.type === "drop" ? 0.2 : 0.34,
+        },
+        tempo === "fast" ? 0.48 : 0.7,
+      );
+    }
+
     if ((section?.type === "build" || section?.type === "drop") && strength >= 0.58) {
       addEffectEvent(
         effectEvents,
@@ -770,6 +815,32 @@ const buildMusicEditPlan = ({
           duration: 0.22,
         },
         tempo === "fast" ? 0.55 : 0.78,
+      );
+    }
+
+    if ((section?.type === "drop" || strength >= 0.66) && section?.type !== "intro") {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
+          type: "snap",
+          strength: Number(strength.toFixed(3)),
+          duration: 0.18,
+        },
+        tempo === "fast" ? 0.55 : 0.82,
+      );
+    }
+
+    if (section?.type !== "intro" && strength >= 0.7) {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
+          type: "push",
+          strength: Number((strength * 0.9).toFixed(3)),
+          duration: 0.24,
+        },
+        0.9,
       );
     }
 
@@ -786,16 +857,29 @@ const buildMusicEditPlan = ({
       );
     }
 
-    if (section?.type === "drop" && strength >= 0.78) {
+    if (strength >= 0.8 || (section?.type === "drop" && strength >= 0.72)) {
       addEffectEvent(
         effectEvents,
         {
           time: Number(beat.time.toFixed(3)),
-          type: "flash",
-          strength: Number((strength * 0.7).toFixed(3)),
-          duration: 0.16,
+          type: "freeze",
+          strength: Number((strength * 0.86).toFixed(3)),
+          duration: 0.2,
         },
-        1.6,
+        1.25,
+      );
+    }
+
+    if (tempo === "fast" && section?.type === "drop" && strength >= 0.84) {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
+          type: "glitch",
+          strength: Number((strength * 0.72).toFixed(3)),
+          duration: 0.14,
+        },
+        1.8,
       );
     }
   }
@@ -886,7 +970,7 @@ const suggestEffectPreset = ({
 
   if (paceShift >= 0.18 && secondHalfGap > 0 && secondHalfGap <= 0.82) {
     return {
-      preset: "cinematic-ramp",
+      preset: "slow-fast-builder",
       paceShift,
       reason: "music starts slower and gets denser later",
     };
@@ -894,7 +978,7 @@ const suggestEffectPreset = ({
 
   if (beatStyle === "fast") {
     return {
-      preset: energy >= 0.55 ? "drop-burst" : "whip-cut",
+      preset: energy >= 0.66 ? "drop-whip" : "velocity-ramp",
       paceShift,
       reason: "music has dense, fast beats",
     };
@@ -902,7 +986,7 @@ const suggestEffectPreset = ({
 
   if (beatStyle === "loose") {
     return {
-      preset: "smooth-documentary",
+      preset: "smooth-velocity",
       paceShift,
       reason: "music has slower spacing between beats",
     };
@@ -910,7 +994,7 @@ const suggestEffectPreset = ({
 
   if (energy >= 0.42) {
     return {
-      preset: "beat-punch",
+      preset: "beat-bounce",
       paceShift,
       reason: "music has enough energy for punchy cut accents",
     };

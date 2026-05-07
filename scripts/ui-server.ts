@@ -53,11 +53,30 @@ type EditEnergy = "calm" | "balanced" | "aggressive";
 type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
 type MusicTempo = "slow" | "medium" | "fast";
 type MusicEnergyCurve = "steady" | "slow-to-fast" | "fast-to-slow" | "mixed";
-type MusicEffectEventType = "pulse" | "flash" | "impact" | "whip";
+type MusicEffectEventType =
+  | "pulse"
+  | "flash"
+  | "impact"
+  | "whip"
+  | "bounce"
+  | "freeze"
+  | "snap"
+  | "ramp"
+  | "push"
+  | "glitch";
 type MusicCutRole = "beat" | "strong" | "drop" | "fill" | "transition";
 type EffectPreset =
   | "clean"
   | "auto"
+  | "smooth-velocity"
+  | "velocity-ramp"
+  | "beat-bounce"
+  | "drop-whip"
+  | "freeze-hit"
+  | "match-push"
+  | "snap-zoom"
+  | "glitch-lite"
+  | "slow-fast-builder"
   | "smooth-documentary"
   | "whip-cut"
   | "drop-burst"
@@ -312,6 +331,15 @@ const colorEnhancements = new Set<ColorEnhancement>([
 const effectPresets = new Set<EffectPreset>([
   "clean",
   "auto",
+  "smooth-velocity",
+  "velocity-ramp",
+  "beat-bounce",
+  "drop-whip",
+  "freeze-hit",
+  "match-push",
+  "snap-zoom",
+  "glitch-lite",
+  "slow-fast-builder",
   "smooth-documentary",
   "whip-cut",
   "drop-burst",
@@ -349,6 +377,12 @@ const musicEffectEventTypes = new Set<MusicEffectEventType>([
   "flash",
   "impact",
   "whip",
+  "bounce",
+  "freeze",
+  "snap",
+  "ramp",
+  "push",
+  "glitch",
 ]);
 const musicCutRoles = new Set<MusicCutRole>([
   "beat",
@@ -674,13 +708,14 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
 
   if (music?.detected?.suggestedEffectPreset || music?.editPlan) {
     if (
+      musicEffect === "slow-fast-builder" ||
       musicEffect === "cinematic-ramp" ||
       musicEffect === "slow-fast-mix" ||
       editCurve === "slow-to-fast" ||
       (paceShift >= 0.18 && beatStyle === "fast")
     ) {
       return {
-        preset: "cinematic-ramp",
+        preset: "slow-fast-builder",
         source: "video+music",
         confidence: editCurve === "slow-to-fast" ? 0.92 : 0.88,
         reason:
@@ -690,6 +725,8 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
     }
 
     if (
+      musicEffect === "drop-whip" ||
+      musicEffect === "velocity-ramp" ||
       musicEffect === "drop-burst" ||
       musicEffect === "whip-cut" ||
       musicEffect === "fast-kinetic" ||
@@ -697,24 +734,32 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
       editTempo === "fast"
     ) {
       return {
-        preset: motion >= 0.5 || shotDensity >= 0.5 ? "whip-cut" : "beat-punch",
+        preset:
+          shotDensity >= 0.62
+            ? "match-push"
+            : motion >= 0.5
+              ? "velocity-ramp"
+              : "beat-bounce",
         source: "video+music",
         confidence: 0.82,
         reason:
-          motion >= 0.5 || shotDensity >= 0.5
-            ? "fast music matches the video's motion and shot changes"
-            : "fast music needs punchy accents without heavy camera motion",
+          shotDensity >= 0.62
+            ? "fast music and frequent scene changes fit push-style match cuts"
+            : motion >= 0.5
+              ? "fast music matches the video's motion with velocity ramps"
+              : "fast music needs punchy accents without heavy camera motion",
       };
     }
 
     if (
+      musicEffect === "smooth-velocity" ||
       musicEffect === "smooth-documentary" ||
       musicEffect === "smooth-slow" ||
       beatStyle === "loose" ||
       editTempo === "slow"
     ) {
       return {
-        preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-documentary" : "auto",
+        preset: dialogueFocus >= 0.58 || videoEnergy < 0.58 ? "smooth-velocity" : "auto",
         source: "video+music",
         confidence: 0.78,
         reason:
@@ -724,9 +769,9 @@ const recommendEffectFromProject = (project: ProjectJson): EffectRecommendation 
       };
     }
 
-    if (musicEffect === "beat-punch") {
+    if (musicEffect === "beat-bounce" || musicEffect === "beat-punch") {
       return {
-        preset: "beat-punch",
+        preset: "beat-bounce",
         source: "video+music",
         confidence: 0.74,
         reason: musicReason || "music has enough energy for punchy cut accents",

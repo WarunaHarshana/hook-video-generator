@@ -391,12 +391,33 @@ select:focus {
   background: #f7d55b;
 }
 
+.timeline-event.bounce,
+.timeline-event.snap {
+  background: #e1a93b;
+}
+
+.timeline-event.ramp {
+  background: #2f8f83;
+}
+
 .timeline-event.impact {
   background: #d3514a;
 }
 
+.timeline-event.freeze {
+  background: #7d5fb2;
+}
+
 .timeline-event.whip {
   background: var(--blue);
+}
+
+.timeline-event.push {
+  background: #4e8298;
+}
+
+.timeline-event.glitch {
+  background: #111827;
 }
 
 .timeline-legend {

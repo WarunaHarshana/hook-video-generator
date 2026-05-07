@@ -36,7 +36,7 @@ A full PDF guide with screenshots is included:
 - View a beat-edit timeline showing sections, cut roles, and effect hits.
 - Make effects react to the analyzed music plan, including build/drop sections and stronger beat hits.
 - Control background music volume, original source audio volume, or mute the original video audio when music is enabled.
-- Choose color-safe visual effects: clean cuts, auto director, smooth documentary, whip cut, cinematic ramp, beat punch, drop burst, hard beat cuts, or impact shake.
+- Choose color-safe visual effects: clean cuts, auto director, smooth velocity, velocity ramp, beat bounce, drop whip, freeze hit, match push, snap zoom, glitch lite, or slow-fast builder.
 - Add an HDR-style color boost to SDR video with natural or vivid modes.
 - Export in source original, 9:16, 1:1, 4:5, or 16:9.
 - Auto reframe when exporting to a different aspect ratio using analyzed focus keyframes when available.
@@ -96,8 +96,8 @@ If port `3210` is already in use, the app will show the next available URL in th
 - `Loose` creates slower, longer rhythm cuts.
 - `Tight` is the balanced default for most hooks.
 - `Fast` creates quicker cuts for dense, energetic beats.
-- `Auto director` effects use the Music Director plan to choose between smooth documentary, whip cut, drop burst, beat punch, and impact moments.
-- `Cinematic ramp` follows songs that begin slower and build into faster sections.
+- `Auto director` effects use the Music Director plan to choose between smooth velocity, velocity ramps, beat bounce, drop whip, snap zoom, freeze hit, match push, and glitch-lite accents.
+- `Slow-fast builder` follows songs that begin slower and build into faster sections.
 - Effect presets are color-safe. They do not add color overlays or change the grade; use `Color boost` separately when you want an HDR-style look.
 
 ## Export Options

@@ -99,6 +99,15 @@ const seconds = (value) => {
 const effectLabels = {
   clean: "Clean cuts",
   auto: "Auto director",
+  "smooth-velocity": "Smooth velocity",
+  "velocity-ramp": "Velocity ramp",
+  "beat-bounce": "Beat bounce",
+  "drop-whip": "Drop whip",
+  "freeze-hit": "Freeze hit",
+  "match-push": "Match push",
+  "snap-zoom": "Snap zoom",
+  "glitch-lite": "Glitch lite",
+  "slow-fast-builder": "Slow-fast builder",
   "smooth-documentary": "Smooth documentary",
   "whip-cut": "Whip cut",
   "drop-burst": "Drop burst",
@@ -114,10 +123,17 @@ const effectLabels = {
 
 const displayEffectPreset = (preset) => {
   return {
-    "smooth-slow": "smooth-documentary",
-    "fast-kinetic": "whip-cut",
-    "slow-fast-mix": "cinematic-ramp",
-    "flash-cuts": "hard-beat-cuts",
+    "smooth-slow": "smooth-velocity",
+    "smooth-documentary": "smooth-velocity",
+    "fast-kinetic": "velocity-ramp",
+    "whip-cut": "drop-whip",
+    "drop-burst": "drop-whip",
+    "slow-fast-mix": "slow-fast-builder",
+    "cinematic-ramp": "slow-fast-builder",
+    "flash-cuts": "match-push",
+    "hard-beat-cuts": "match-push",
+    "beat-punch": "beat-bounce",
+    "impact-shake": "freeze-hit",
   }[preset] || preset || "clean";
 };
 
@@ -174,7 +190,8 @@ const renderEffectRecommendation = (project = state.project) => {
     return;
   }
 
-  const label = effectLabels[recommendation.preset] || recommendation.preset;
+  const displayedPreset = displayEffectPreset(recommendation.preset);
+  const label = effectLabels[displayedPreset] || effectLabels[recommendation.preset] || recommendation.preset;
   const source =
     recommendation.source === "video+music"
       ? "video and music"
@@ -190,15 +207,16 @@ const renderEffectRecommendation = (project = state.project) => {
 
 const applyRecommendedEffectToControls = (project = state.project) => {
   const recommendation = getEffectRecommendation(project);
-  if (!recommendation?.preset || !effectLabels[recommendation.preset]) {
+  const displayedPreset = displayEffectPreset(recommendation?.preset);
+  if (!recommendation?.preset || !effectLabels[displayedPreset]) {
     return false;
   }
 
-  els.effectPreset.value = displayEffectPreset(recommendation.preset);
+  els.effectPreset.value = displayedPreset;
   if (state.project) {
     state.project = {
       ...state.project,
-      effectPreset: displayEffectPreset(recommendation.preset),
+      effectPreset: displayedPreset,
     };
   }
 
@@ -498,12 +516,22 @@ const musicDirectorSummary = (music) => {
     counts[role] = (counts[role] || 0) + 1;
     return counts;
   }, {});
+  const eventRoles = (plan.effectEvents || []).reduce((counts, event) => {
+    const type = event.type || "pulse";
+    counts[type] = (counts[type] || 0) + 1;
+    return counts;
+  }, {});
   const roleText = Object.entries(roles)
     .filter(([, count]) => count > 0)
     .map(([role, count]) => `${count} ${role}`)
     .join(", ");
+  const eventText = Object.entries(eventRoles)
+    .filter(([, count]) => count > 0)
+    .slice(0, 5)
+    .map(([type, count]) => `${count} ${type}`)
+    .join(", ");
 
-  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. Recommended energy: ${energy}. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}`;
+  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. Recommended energy: ${energy}. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}${eventText ? ` Effects: ${eventText}.` : ""}`;
 };
 
 const renderBeatTimeline = (music) => {
@@ -1224,7 +1252,11 @@ const applyJobUpdate = async (job, options = {}) => {
       "balanced";
     const recommendation = getEffectRecommendation(state.project);
     const effectText = recommendation
-      ? ` Effect auto-selected: ${effectLabels[recommendation.preset] || recommendation.preset}.`
+      ? ` Effect auto-selected: ${
+          effectLabels[displayEffectPreset(recommendation.preset)] ||
+          effectLabels[recommendation.preset] ||
+          recommendation.preset
+        }.`
       : "";
     const plan = state.project?.music?.editPlan;
     const directorText = plan
