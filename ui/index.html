@@ -47,6 +47,24 @@
             </div>
           </div>
 
+          <div class="range-block">
+            <div class="range-head">
+              <label>Analyze range</label>
+              <button id="fullRangeBtn" type="button" class="subtle-button">Full video</button>
+            </div>
+            <div class="option-grid range-options">
+              <div class="field">
+                <label for="rangeStart">Start second</label>
+                <input id="rangeStart" type="number" min="0" step="0.1" value="0" />
+              </div>
+              <div class="field">
+                <label for="rangeEnd">End second</label>
+                <input id="rangeEnd" type="number" min="0" step="0.1" placeholder="End of video" />
+              </div>
+            </div>
+            <div class="range-note" id="rangeNote">Leave end blank to scan to the end.</div>
+          </div>
+
           <div class="button-row">
             <button id="analyzeBtn" class="primary">Analyze Hooks</button>
             <button id="cancelJobBtn" type="button" class="danger-button" hidden>

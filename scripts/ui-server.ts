@@ -198,6 +198,11 @@ type ProjectJson = {
     video?: VideoAnalysisSummary;
     effectRecommendation?: EffectRecommendation;
   };
+  analysisRange?: {
+    start: number;
+    end: number;
+    duration: number;
+  };
   title?: string;
   highlights: HighlightSegment[];
 };
@@ -2114,6 +2119,8 @@ const routeApi = async (
       clipDuration?: number;
       maxClips?: number;
       sceneThreshold?: number;
+      rangeStart?: number;
+      rangeEnd?: number;
       highlightsPath?: string;
     }>(req);
     const input = body.input?.trim();
@@ -2144,6 +2151,16 @@ const routeApi = async (
       "--scene-threshold",
       String(normalizeNumber(body.sceneThreshold, 0.32)),
     ];
+    const rangeStart = normalizeNumber(body.rangeStart, 0);
+    const rangeEnd = normalizeNumber(body.rangeEnd, 0);
+
+    if (rangeStart > 0) {
+      args.push("--range-start", String(rangeStart));
+    }
+
+    if (rangeEnd > 0) {
+      args.push("--range-end", String(rangeEnd));
+    }
 
     if (body.highlightsPath?.trim()) {
       args.push("--highlights", body.highlightsPath.trim());

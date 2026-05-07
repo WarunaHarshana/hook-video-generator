@@ -73,6 +73,12 @@ type VideoAnalysisSummary = {
   energyScore: number;
 };
 
+type AnalysisRange = {
+  start: number;
+  end: number;
+  duration: number;
+};
+
 type ProjectJson = {
   src: string;
   width: number;
@@ -89,6 +95,7 @@ type ProjectJson = {
     video?: VideoAnalysisSummary;
     effectRecommendation?: EffectRecommendation;
   };
+  analysisRange?: AnalysisRange;
   highlights: HighlightSegment[];
 };
 
@@ -147,12 +154,54 @@ const readNumberFlag = (name: string, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const readOptionalNumberFlag = (name: string) => {
+  const value = readFlag(name);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const progress = (percent: number, message: string) => {
   console.log(`PROGRESS ${Math.round(percent)} ${message}`);
 };
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
+};
+
+const buildAnalysisRange = ({
+  sourceDuration,
+  clipDuration,
+  rangeStart,
+  rangeEnd,
+}: {
+  sourceDuration: number;
+  clipDuration: number;
+  rangeStart?: number;
+  rangeEnd?: number;
+}): AnalysisRange => {
+  const safeSourceDuration = Math.max(0.1, sourceDuration);
+  const minimumRange = Math.max(0.1, clipDuration);
+  const maxStart = Math.max(0, safeSourceDuration - Math.min(minimumRange, safeSourceDuration));
+  const start = clamp(Number(rangeStart) || 0, 0, maxStart);
+  const requestedEnd =
+    Number.isFinite(Number(rangeEnd)) && Number(rangeEnd) > 0
+      ? Number(rangeEnd)
+      : safeSourceDuration;
+  const end = clamp(requestedEnd, Math.min(safeSourceDuration, start + minimumRange), safeSourceDuration);
+
+  if (end <= start) {
+    throw new Error("Analyze range end must be greater than the start time.");
+  }
+
+  return {
+    start: Number(start.toFixed(3)),
+    end: Number(end.toFixed(3)),
+    duration: Number((end - start).toFixed(3)),
+  };
 };
 
 const roundScore = (value: number) => {
@@ -404,26 +453,51 @@ const loadHighlightsJson = async (highlightsPath: string) => {
     );
 };
 
-const detectScenes = async (input: string, threshold: number): Promise<ShotChange[]> => {
-  const output = await runFfmpeg([
+const detectScenes = async (
+  input: string,
+  threshold: number,
+  analysisRange: AnalysisRange,
+): Promise<ShotChange[]> => {
+  const ffmpegArgs = [
     "-hide_banner",
-    "-i",
-    input,
+  ];
+
+  if (analysisRange.start > 0) {
+    ffmpegArgs.push("-ss", String(analysisRange.start));
+  }
+
+  ffmpegArgs.push("-i", input);
+
+  if (analysisRange.duration > 0) {
+    ffmpegArgs.push("-t", String(analysisRange.duration));
+  }
+
+  ffmpegArgs.push(
     "-vf",
     `select='gt(scene,${threshold})',metadata=print:file=-,showinfo`,
     "-an",
     "-f",
     "null",
     "-",
-  ]);
+  );
+
+  const output = await runFfmpeg(ffmpegArgs);
+  const toAbsoluteTime = (time: number) => {
+    const likelyRelative =
+      analysisRange.start > 0 && time <= analysisRange.duration + 1;
+    return likelyRelative ? time + analysisRange.start : time;
+  };
+  const isInsideRange = (time: number) => {
+    return time >= analysisRange.start && time <= analysisRange.end;
+  };
 
   const changes = new Map<string, ShotChange>();
   let pendingTime: number | undefined;
 
   for (const line of output.split(/\r?\n/)) {
-    const time = Number(/pts_time:([0-9.]+)/.exec(line)?.[1]);
-    if (Number.isFinite(time) && time >= 0) {
-      pendingTime = time;
+    const parsedTime = Number(/pts_time:([0-9.]+)/.exec(line)?.[1]);
+    if (Number.isFinite(parsedTime) && parsedTime >= 0) {
+      pendingTime = toAbsoluteTime(parsedTime);
     }
 
     const score = Number(/lavfi\.scene_score=([0-9.]+)/.exec(line)?.[1]);
@@ -432,7 +506,12 @@ const detectScenes = async (input: string, threshold: number): Promise<ShotChang
     }
 
     const keyTime = pendingTime;
-    if (typeof keyTime !== "number" || !Number.isFinite(keyTime) || keyTime < 0) {
+    if (
+      typeof keyTime !== "number" ||
+      !Number.isFinite(keyTime) ||
+      keyTime < 0 ||
+      !isInsideRange(keyTime)
+    ) {
       continue;
     }
 
@@ -449,8 +528,9 @@ const detectScenes = async (input: string, threshold: number): Promise<ShotChang
 
   const fallback = new Set<number>();
   for (const match of output.matchAll(/pts_time:([0-9.]+)/g)) {
-    const time = Number(match[1]);
-    if (Number.isFinite(time) && time >= 0) {
+    const parsedTime = Number(match[1]);
+    const time = toAbsoluteTime(parsedTime);
+    if (Number.isFinite(time) && time >= 0 && isInsideRange(time)) {
       fallback.add(time);
     }
   }
@@ -827,26 +907,29 @@ const buildCandidatePool = ({
   shotChanges,
   clipDuration,
   maxClips,
-  sourceDuration,
+  analysisRange,
 }: {
   shotChanges: ShotChange[];
   clipDuration: number;
   maxClips: number;
-  sourceDuration: number;
+  analysisRange: AnalysisRange;
 }) => {
-  const maxStart = Math.max(0, sourceDuration - clipDuration);
+  const {start: rangeStart, end: rangeEnd, duration: rangeDuration} = analysisRange;
+  const maxStart = Math.max(rangeStart, rangeEnd - clipDuration);
+  const usableDuration = Math.max(0.1, rangeDuration);
   const endAvoidSeconds = Math.min(
     45,
-    Math.max(clipDuration * 2.5, sourceDuration * 0.08),
+    Math.max(clipDuration * 2.5, usableDuration * 0.08),
   );
   const preferredMaxStart =
-    sourceDuration > clipDuration + endAvoidSeconds + 1
-      ? Math.max(0, sourceDuration - clipDuration - endAvoidSeconds)
+    usableDuration > clipDuration + endAvoidSeconds + 1
+      ? Math.max(rangeStart, rangeEnd - clipDuration - endAvoidSeconds)
       : maxStart;
-  const bucketStep = maxClips > 1 ? preferredMaxStart / (maxClips - 1) : 0;
+  const candidateSpan = Math.max(0, preferredMaxStart - rangeStart);
+  const bucketStep = maxClips > 1 ? candidateSpan / (maxClips - 1) : 0;
   const timelineAnchors = Array.from({length: Math.max(maxClips * 3, 6)}, (_, index) => {
     const denominator = Math.max(maxClips * 3 - 1, 1);
-    return preferredMaxStart * (index / denominator);
+    return rangeStart + candidateSpan * (index / denominator);
   });
   const candidates = [
     ...shotChanges.flatMap((change) => [
@@ -856,7 +939,7 @@ const buildCandidatePool = ({
     ]),
     ...timelineAnchors,
   ]
-    .map((timestamp) => Math.max(0, Math.min(timestamp, maxStart)))
+    .map((timestamp) => Math.max(rangeStart, Math.min(timestamp, maxStart)))
     .filter((timestamp) => timestamp <= preferredMaxStart || preferredMaxStart === maxStart)
     .map((timestamp) => Number(timestamp.toFixed(3)));
   const uniqueCandidates = [...new Set(candidates)]
@@ -865,8 +948,8 @@ const buildCandidatePool = ({
   const perBucketLimit = 6;
 
   for (let index = 0; index < maxClips; index += 1) {
-    const target = bucketStep * index;
-    const bucketStart = Math.max(0, target - bucketStep / 2);
+    const target = rangeStart + bucketStep * index;
+    const bucketStart = Math.max(rangeStart, target - bucketStep / 2);
     const bucketEnd = Math.min(preferredMaxStart, target + bucketStep / 2);
     const bucketCandidates = uniqueCandidates.filter(
       (candidate) => candidate >= bucketStart && candidate <= bucketEnd,
@@ -891,11 +974,12 @@ const buildCandidatePool = ({
                 0,
                 0.7,
               );
-        const earlyRevealScore = 1 - clamp(start / Math.max(sourceDuration * 0.72, 1), 0, 0.25);
+        const rangePosition = start - rangeStart;
+        const earlyRevealScore = 1 - clamp(rangePosition / Math.max(usableDuration * 0.72, 1), 0, 0.25);
 
         return {
           start,
-          duration: Math.min(clipDuration, sourceDuration - start),
+          duration: Math.min(clipDuration, rangeEnd - start),
           target,
           bucketIndex: index,
           sceneScore,
@@ -1198,7 +1282,7 @@ const sceneTimestampsToHighlights = async ({
   shotChanges,
   clipDuration,
   maxClips,
-  sourceDuration,
+  analysisRange,
   sourceWidth,
   sourceHeight,
 }: {
@@ -1206,7 +1290,7 @@ const sceneTimestampsToHighlights = async ({
   shotChanges: ShotChange[];
   clipDuration: number;
   maxClips: number;
-  sourceDuration: number;
+  analysisRange: AnalysisRange;
   sourceWidth: number;
   sourceHeight: number;
 }): Promise<HookSelection> => {
@@ -1214,10 +1298,13 @@ const sceneTimestampsToHighlights = async ({
     shotChanges,
     clipDuration,
     maxClips,
-    sourceDuration,
+    analysisRange,
   });
 
-  progress(45, `Built ${pool.length} hook candidates away from the ending`);
+  progress(
+    45,
+    `Built ${pool.length} hook candidates from ${analysisRange.start}s-${analysisRange.end}s`,
+  );
 
   const useFaceDetection = await detectFaceFilterSupport();
   progress(
@@ -1291,16 +1378,27 @@ const main = async () => {
   const maxClips = Math.max(1, Math.round(readNumberFlag("--max-clips", 8)));
   const clipDuration = readNumberFlag("--clip-duration", 3);
   const sceneThreshold = readNumberFlag("--scene-threshold", 0.32);
+  const requestedRangeStart = readOptionalNumberFlag("--range-start");
+  const requestedRangeEnd = readOptionalNumberFlag("--range-end");
 
   progress(5, "Reading source metadata");
   const metadata = await probeVideo(inputPath);
+  const analysisRange = buildAnalysisRange({
+    sourceDuration: metadata.duration,
+    clipDuration,
+    rangeStart: requestedRangeStart,
+    rangeEnd: requestedRangeEnd,
+  });
   progress(16, "Checking highlights file");
   const highlightsFromFile = await loadHighlightsJson(highlightsPath);
-  progress(24, "Detecting shot changes and scene strength");
+  progress(
+    24,
+    `Detecting shot changes from ${analysisRange.start}s to ${analysisRange.end}s`,
+  );
   const shotChanges =
     highlightsFromFile && highlightsFromFile.length > 0
       ? []
-      : await detectScenes(inputPath, sceneThreshold);
+      : await detectScenes(inputPath, sceneThreshold, analysisRange);
   progress(
     42,
     shotChanges.length > 0
@@ -1325,7 +1423,7 @@ const main = async () => {
           shotChanges,
           clipDuration,
           maxClips,
-          sourceDuration: metadata.duration,
+          analysisRange,
           sourceWidth: metadata.width,
           sourceHeight: metadata.height,
         });
@@ -1347,6 +1445,7 @@ const main = async () => {
       video: videoSummary,
       effectRecommendation,
     },
+    analysisRange,
     highlights,
   };
 

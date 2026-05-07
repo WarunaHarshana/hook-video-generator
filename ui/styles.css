@@ -203,6 +203,33 @@ select:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.range-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.range-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.range-note {
+  min-height: 17px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .render-options {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -562,6 +589,13 @@ button.primary {
 button.primary:hover {
   border-color: var(--accent-strong);
   background: var(--accent-strong);
+}
+
+button.subtle-button {
+  min-height: 31px;
+  padding: 5px 10px;
+  color: var(--blue);
+  font-size: 12px;
 }
 
 button.danger-button {

@@ -19,6 +19,10 @@ const els = {
   clipDuration: document.querySelector("#clipDuration"),
   maxClips: document.querySelector("#maxClips"),
   sceneThreshold: document.querySelector("#sceneThreshold"),
+  rangeStart: document.querySelector("#rangeStart"),
+  rangeEnd: document.querySelector("#rangeEnd"),
+  fullRangeBtn: document.querySelector("#fullRangeBtn"),
+  rangeNote: document.querySelector("#rangeNote"),
   analyzeBtn: document.querySelector("#analyzeBtn"),
   cancelJobBtn: document.querySelector("#cancelJobBtn"),
   reloadBtn: document.querySelector("#reloadBtn"),
@@ -94,6 +98,40 @@ const api = async (path, options = {}) => {
 const seconds = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? `${number.toFixed(2)}s` : "-";
+};
+
+const readAnalyzeRange = () => {
+  const start = Math.max(0, Number(els.rangeStart.value) || 0);
+  const endText = String(els.rangeEnd.value || "").trim();
+  const end = endText ? Number(endText) : undefined;
+
+  if (endText && (!Number.isFinite(end) || end <= 0)) {
+    throw new Error("Analyze range end must be a positive second value.");
+  }
+
+  if (Number.isFinite(end) && end <= start) {
+    throw new Error("Analyze range end must be greater than the start second.");
+  }
+
+  return {
+    rangeStart: start,
+    rangeEnd: Number.isFinite(end) ? end : undefined,
+  };
+};
+
+const updateAnalyzeRangeNote = () => {
+  try {
+    const {rangeStart, rangeEnd} = readAnalyzeRange();
+    if (rangeStart === 0 && !rangeEnd) {
+      els.rangeNote.textContent = "Scanning the full video.";
+      return;
+    }
+
+    const endLabel = Number.isFinite(rangeEnd) ? seconds(rangeEnd) : "the end";
+    els.rangeNote.textContent = `Scanning ${seconds(rangeStart)} to ${endLabel}.`;
+  } catch (error) {
+    els.rangeNote.textContent = error.message;
+  }
 };
 
 const sourceVideoExtensions = new Set(["mp4", "mov", "mkv", "webm", "avi", "m4v"]);
@@ -289,6 +327,12 @@ const setBusy = (busy) => {
   const cpuMode = els.renderMode.value === "cpu";
   els.analyzeBtn.disabled = busy;
   els.chooseFileBtn.disabled = busy;
+  els.clipDuration.disabled = busy;
+  els.maxClips.disabled = busy;
+  els.sceneThreshold.disabled = busy;
+  els.rangeStart.disabled = busy;
+  els.rangeEnd.disabled = busy;
+  els.fullRangeBtn.disabled = busy;
   els.chooseOutputBtn.disabled = busy;
   els.outputAspectRatio.disabled = busy;
   els.effectPreset.disabled = busy;
@@ -885,6 +929,9 @@ const resetProjectForNewSource = (src) => {
   state.hookVideoSource = "output";
   els.sourcePath.value = src;
   els.titleText.value = "";
+  els.rangeStart.value = 0;
+  els.rangeEnd.value = "";
+  updateAnalyzeRangeNote();
   els.uploadStatus.textContent = src ? "Using original file path" : "";
   renderMetrics();
   renderHighlights();
@@ -1146,10 +1193,16 @@ const renderProject = (serverState = {}) => {
     if (project.highlights.length > 0) {
       els.clipDuration.value = project.highlights[0].duration;
     }
+    els.rangeStart.value = project.analysisRange?.start ?? 0;
+    els.rangeEnd.value = project.analysisRange?.end ?? "";
+    updateAnalyzeRangeNote();
     renderEffectRecommendation(project);
   } else {
     els.sourcePath.value = "";
     els.titleText.value = "";
+    els.rangeStart.value = 0;
+    els.rangeEnd.value = "";
+    updateAnalyzeRangeNote();
     els.uploadStatus.textContent = "";
     els.outputAspectRatio.value = "source";
     els.effectPreset.value = "clean";
@@ -1431,6 +1484,7 @@ els.analyzeBtn.addEventListener("click", async () => {
     state.pendingOutputAspectRatio = els.outputAspectRatio.value;
     state.pendingAutoReframe = els.autoReframe.checked;
     validateSourceVideoPath(els.sourcePath.value);
+    const analyzeRange = readAnalyzeRange();
     els.processNote.textContent = "Starting analysis...";
     const job = await api("/api/analyze", {
       method: "POST",
@@ -1439,6 +1493,8 @@ els.analyzeBtn.addEventListener("click", async () => {
         clipDuration: Number(els.clipDuration.value),
         maxClips: Number(els.maxClips.value),
         sceneThreshold: Number(els.sceneThreshold.value),
+        rangeStart: analyzeRange.rangeStart,
+        rangeEnd: analyzeRange.rangeEnd,
       }),
     });
     state.activeJob = job;
@@ -1855,6 +1911,14 @@ els.reloadBtn.addEventListener("click", () => {
   loadState().catch((error) => {
     els.processNote.textContent = error.message;
   });
+});
+
+els.rangeStart.addEventListener("input", updateAnalyzeRangeNote);
+els.rangeEnd.addEventListener("input", updateAnalyzeRangeNote);
+els.fullRangeBtn.addEventListener("click", () => {
+  els.rangeStart.value = 0;
+  els.rangeEnd.value = "";
+  updateAnalyzeRangeNote();
 });
 
 els.addHighlightBtn.addEventListener("click", () => {
