@@ -21,6 +21,8 @@ const els = {
   sceneThreshold: document.querySelector("#sceneThreshold"),
   rangeStart: document.querySelector("#rangeStart"),
   rangeEnd: document.querySelector("#rangeEnd"),
+  rangeStartNowBtn: document.querySelector("#rangeStartNowBtn"),
+  rangeEndNowBtn: document.querySelector("#rangeEndNowBtn"),
   fullRangeBtn: document.querySelector("#fullRangeBtn"),
   rangeNote: document.querySelector("#rangeNote"),
   analyzeBtn: document.querySelector("#analyzeBtn"),
@@ -100,16 +102,67 @@ const seconds = (value) => {
   return Number.isFinite(number) ? `${number.toFixed(2)}s` : "-";
 };
 
-const readAnalyzeRange = () => {
-  const start = Math.max(0, Number(els.rangeStart.value) || 0);
-  const endText = String(els.rangeEnd.value || "").trim();
-  const end = endText ? Number(endText) : undefined;
+const formatTimecode = (value) => {
+  const totalSeconds = Math.max(0, Number(value) || 0);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secondsPart = totalSeconds % 60;
+  const secondsText =
+    secondsPart % 1 === 0
+      ? String(secondsPart).padStart(2, "0")
+      : secondsPart.toFixed(2).padStart(5, "0");
 
-  if (endText && (!Number.isFinite(end) || end <= 0)) {
-    throw new Error("Analyze range end must be a positive second value.");
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${secondsText}`;
   }
 
-  if (Number.isFinite(end) && end <= start) {
+  return `${minutes}:${secondsText}`;
+};
+
+const parseTimeInput = (value, label, {allowBlank = false, fallback = 0} = {}) => {
+  const text = String(value || "").trim();
+  if (!text) {
+    if (allowBlank) {
+      return undefined;
+    }
+
+    return fallback;
+  }
+
+  if (!text.includes(":")) {
+    const parsed = Number(text);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+
+    throw new Error(`${label} must be seconds or a time like 1:23.`);
+  }
+
+  const parts = text.split(":").map((part) => part.trim());
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => part === "")) {
+    throw new Error(`${label} must use m:ss or h:mm:ss.`);
+  }
+
+  const numbers = parts.map(Number);
+  if (numbers.some((part) => !Number.isFinite(part) || part < 0)) {
+    throw new Error(`${label} must use numbers only.`);
+  }
+
+  const secondsPart = numbers.at(-1);
+  const minutesPart = numbers.at(-2);
+  if ((secondsPart ?? 0) >= 60 || (parts.length === 3 && (minutesPart ?? 0) >= 60)) {
+    throw new Error(`${label} must use valid minutes and seconds.`);
+  }
+
+  return numbers.reduce((total, part) => total * 60 + part, 0);
+};
+
+const readAnalyzeRange = () => {
+  const start = Math.max(0, parseTimeInput(els.rangeStart.value, "Analyze range start"));
+  const endText = String(els.rangeEnd.value || "").trim();
+  const end = parseTimeInput(els.rangeEnd.value, "Analyze range end", {allowBlank: true});
+
+  if (endText && Number.isFinite(end) && end <= start) {
     throw new Error("Analyze range end must be greater than the start second.");
   }
 
@@ -123,15 +176,29 @@ const updateAnalyzeRangeNote = () => {
   try {
     const {rangeStart, rangeEnd} = readAnalyzeRange();
     if (rangeStart === 0 && !rangeEnd) {
-      els.rangeNote.textContent = "Scanning the full video.";
+      els.rangeNote.textContent = "Scanning the full video. You can type seconds or player time.";
       return;
     }
 
-    const endLabel = Number.isFinite(rangeEnd) ? seconds(rangeEnd) : "the end";
-    els.rangeNote.textContent = `Scanning ${seconds(rangeStart)} to ${endLabel}.`;
+    const startLabel = `${formatTimecode(rangeStart)} = ${seconds(rangeStart)}`;
+    const endLabel = Number.isFinite(rangeEnd)
+      ? `${formatTimecode(rangeEnd)} = ${seconds(rangeEnd)}`
+      : "the end";
+    els.rangeNote.textContent = `Scanning ${startLabel} to ${endLabel}.`;
   } catch (error) {
     els.rangeNote.textContent = error.message;
   }
+};
+
+const setRangeTimeFromPlayer = (input) => {
+  const currentTime = Number(els.sourceVideo.currentTime);
+  if (!Number.isFinite(currentTime)) {
+    els.rangeNote.textContent = "Load a source video before using the player time.";
+    return;
+  }
+
+  input.value = formatTimecode(currentTime);
+  updateAnalyzeRangeNote();
 };
 
 const sourceVideoExtensions = new Set(["mp4", "mov", "mkv", "webm", "avi", "m4v"]);
@@ -332,6 +399,8 @@ const setBusy = (busy) => {
   els.sceneThreshold.disabled = busy;
   els.rangeStart.disabled = busy;
   els.rangeEnd.disabled = busy;
+  els.rangeStartNowBtn.disabled = busy;
+  els.rangeEndNowBtn.disabled = busy;
   els.fullRangeBtn.disabled = busy;
   els.chooseOutputBtn.disabled = busy;
   els.outputAspectRatio.disabled = busy;
@@ -1193,8 +1262,10 @@ const renderProject = (serverState = {}) => {
     if (project.highlights.length > 0) {
       els.clipDuration.value = project.highlights[0].duration;
     }
-    els.rangeStart.value = project.analysisRange?.start ?? 0;
-    els.rangeEnd.value = project.analysisRange?.end ?? "";
+    els.rangeStart.value = formatTimecode(project.analysisRange?.start ?? 0);
+    els.rangeEnd.value = Number.isFinite(project.analysisRange?.end)
+      ? formatTimecode(project.analysisRange.end)
+      : "";
     updateAnalyzeRangeNote();
     renderEffectRecommendation(project);
   } else {
@@ -1915,6 +1986,12 @@ els.reloadBtn.addEventListener("click", () => {
 
 els.rangeStart.addEventListener("input", updateAnalyzeRangeNote);
 els.rangeEnd.addEventListener("input", updateAnalyzeRangeNote);
+els.rangeStartNowBtn.addEventListener("click", () => {
+  setRangeTimeFromPlayer(els.rangeStart);
+});
+els.rangeEndNowBtn.addEventListener("click", () => {
+  setRangeTimeFromPlayer(els.rangeEnd);
+});
 els.fullRangeBtn.addEventListener("click", () => {
   els.rangeStart.value = 0;
   els.rangeEnd.value = "";

@@ -222,6 +222,12 @@ select:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.time-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, auto);
+  gap: 8px;
+}
+
 .range-note {
   min-height: 17px;
   color: var(--muted);

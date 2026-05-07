@@ -54,15 +54,21 @@
             </div>
             <div class="option-grid range-options">
               <div class="field">
-                <label for="rangeStart">Start second</label>
-                <input id="rangeStart" type="number" min="0" step="0.1" value="0" />
+                <label for="rangeStart">Start time</label>
+                <div class="time-picker">
+                  <input id="rangeStart" type="text" inputmode="decimal" value="0" placeholder="0 or 1:23" />
+                  <button id="rangeStartNowBtn" type="button" class="subtle-button">Use player</button>
+                </div>
               </div>
               <div class="field">
-                <label for="rangeEnd">End second</label>
-                <input id="rangeEnd" type="number" min="0" step="0.1" placeholder="End of video" />
+                <label for="rangeEnd">End time</label>
+                <div class="time-picker">
+                  <input id="rangeEnd" type="text" inputmode="decimal" placeholder="End or 2:30" />
+                  <button id="rangeEndNowBtn" type="button" class="subtle-button">Use player</button>
+                </div>
               </div>
             </div>
-            <div class="range-note" id="rangeNote">Leave end blank to scan to the end.</div>
+            <div class="range-note" id="rangeNote">Use seconds or player time like 1:23.</div>
           </div>
 
           <div class="button-row">
