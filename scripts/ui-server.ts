@@ -832,6 +832,8 @@ const assertSupportedMusicSource = (value: string) => {
   }
 };
 
+const isRemoteMediaUrl = (value: string) => /^(https?:|data:|blob:)/i.test(value);
+
 const sourceVideoExtensions = new Set([
   ".mp4",
   ".mov",
@@ -848,6 +850,16 @@ const audioOnlyExtensions = new Set([
   ".aac",
   ".flac",
   ".ogg",
+]);
+
+const musicMediaExtensions = new Set([
+  ...audioOnlyExtensions,
+  ".mp4",
+  ".mov",
+  ".mkv",
+  ".webm",
+  ".avi",
+  ".m4v",
 ]);
 
 const assertSourceVideoPath = async (input: string) => {
@@ -894,6 +906,64 @@ const assertSourceVideoPath = async (input: string) => {
   if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
     throw new Error(
       "No usable video stream was found in that file. Choose a real video as the source, or add audio files in the Music section.",
+    );
+  }
+};
+
+const assertMusicSource = async (input: string) => {
+  const source = input.trim();
+  assertSupportedMusicSource(source);
+
+  const remote = isRemoteMediaUrl(source);
+  let pathname = source;
+  if (remote) {
+    try {
+      pathname = new URL(source).pathname;
+    } catch {
+      throw new Error("Enter a valid direct music file URL.");
+    }
+  }
+  const extension = path.extname(pathname).toLowerCase();
+
+  if (!remote && !existsSync(path.resolve(source))) {
+    throw new Error("Music file does not exist.");
+  }
+
+  if (extension && !musicMediaExtensions.has(extension)) {
+    throw new Error(
+      "Unsupported music file type. Choose MP3, WAV, M4A, AAC, FLAC, OGG, or a video file that contains audio.",
+    );
+  }
+
+  if (remote) {
+    return;
+  }
+
+  const ffprobe = ffprobeStatic.path || "ffprobe";
+  const {stdout} = await execFileAsync(
+    ffprobe,
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "a:0",
+      "-show_entries",
+      "stream=sample_rate,channels",
+      "-of",
+      "csv=p=0",
+      path.resolve(source),
+    ],
+    {maxBuffer: 1024 * 1024, windowsHide: true},
+  );
+  const values = String(stdout)
+    .trim()
+    .split(",")
+    .map((value) => Number(value));
+  const hasAudio = values.some((value) => Number.isFinite(value) && value > 0);
+
+  if (!hasAudio) {
+    throw new Error(
+      "No usable audio stream was found. Choose an audio file, or a video file that contains audio.",
     );
   }
 };
@@ -1469,7 +1539,7 @@ Add-Type -AssemblyName System.Windows.Forms
 ${dialogOwnerScript}
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = 'Choose music file'
-$dialog.Filter = 'Audio and video files (*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm)|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm|All files (*.*)|*.*'
+$dialog.Filter = 'Audio and video files (*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v)|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v'
 $dialog.Multiselect = $false
 $dialog.CheckFileExists = $true
 $dialog.InitialDirectory = ${powershellString(initialDirectory)}
@@ -1920,7 +1990,14 @@ const routeApi = async (
   if (req.method === "POST" && url.pathname === "/api/project") {
     const body = await parseBody<ProjectJson>(req);
     if (body.music?.src) {
-      assertSupportedMusicSource(body.music.src);
+      try {
+        await assertMusicSource(body.music.src);
+      } catch (error) {
+        sendJson(res, 400, {
+          error: error instanceof Error ? error.message : "Choose a valid music file.",
+        });
+        return;
+      }
     }
     const project = validateProject(body);
     await writeFile(projectPath, `${JSON.stringify(project, null, 2)}\n`);
@@ -1998,6 +2075,15 @@ const routeApi = async (
 
     if (!src) {
       sendJson(res, 200, {cancelled: true});
+      return;
+    }
+
+    try {
+      await assertMusicSource(src);
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : "Choose a valid music file.",
+      });
       return;
     }
 
@@ -2092,7 +2178,14 @@ const routeApi = async (
       return;
     }
 
-    assertSupportedMusicSource(input);
+    try {
+      await assertMusicSource(input);
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : "Choose a valid music file.",
+      });
+      return;
+    }
 
     if (!project) {
       sendJson(res, 400, {error: "Analyze hooks before analyzing music."});

@@ -1,4 +1,5 @@
 import {spawn} from "node:child_process";
+import {existsSync} from "node:fs";
 import {writeFile} from "node:fs/promises";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
@@ -143,6 +144,70 @@ const readBooleanFlag = (name: string) => {
   return process.argv.includes(name);
 };
 
+const isRemoteMediaUrl = (value: string) => /^(https?:|data:|blob:)/i.test(value);
+
+const isYoutubeUrl = (value: string) => {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "youtube.com" ||
+      hostname === "www.youtube.com" ||
+      hostname === "youtu.be" ||
+      hostname.endsWith(".youtube.com")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const audioOnlyExtensions = new Set([
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".aac",
+  ".flac",
+  ".ogg",
+]);
+
+const musicMediaExtensions = new Set([
+  ...audioOnlyExtensions,
+  ".mp4",
+  ".mov",
+  ".mkv",
+  ".webm",
+  ".avi",
+  ".m4v",
+]);
+
+const validateMusicInput = (input: string) => {
+  if (isYoutubeUrl(input)) {
+    throw new Error(
+      "YouTube links cannot be analyzed directly. Choose a local music file instead.",
+    );
+  }
+
+  const remote = isRemoteMediaUrl(input);
+  let pathname = input;
+  if (remote) {
+    try {
+      pathname = new URL(input).pathname;
+    } catch {
+      throw new Error("Enter a valid direct music file URL.");
+    }
+  }
+  const extension = path.extname(pathname).toLowerCase();
+
+  if (!remote && !existsSync(path.resolve(input))) {
+    throw new Error("Music file does not exist.");
+  }
+
+  if (extension && !musicMediaExtensions.has(extension)) {
+    throw new Error(
+      "Unsupported music file type. Choose MP3, WAV, M4A, AAC, FLAC, OGG, or a video file that contains audio.",
+    );
+  }
+};
+
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
 };
@@ -168,6 +233,35 @@ const runBuffered = async (command: string, args: string[]) => {
   }
 
   return Buffer.concat(chunks);
+};
+
+const assertInputHasAudioStream = async (input: string) => {
+  const ffprobe = ffprobeStatic.path || "ffprobe";
+  const output = await runBuffered(ffprobe, [
+    "-v",
+    "error",
+    "-select_streams",
+    "a:0",
+    "-show_entries",
+    "stream=sample_rate,channels",
+    "-of",
+    "csv=p=0",
+    input,
+  ]);
+  const hasAudio = output
+    .toString("utf8")
+    .trim()
+    .split(",")
+    .some((value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0;
+    });
+
+  if (!hasAudio) {
+    throw new Error(
+      "No usable audio stream was found. Choose an audio file, or a video file that contains audio.",
+    );
+  }
 };
 
 const probeDuration = async (input: string) => {
@@ -1020,7 +1114,10 @@ const main = async () => {
     throw new Error("--input is required.");
   }
 
+  validateMusicInput(input);
+
   process.stdout.write("PROGRESS 10 Reading music metadata\n");
+  await assertInputHasAudioStream(input);
   const audioDuration = await probeDuration(input);
   const effectiveDuration = useEntireFile
     ? audioDuration
@@ -1072,7 +1169,7 @@ const main = async () => {
   });
   const result: AnalysisResult = {
     music: {
-      src: path.resolve(input),
+      src: isRemoteMediaUrl(input) ? input : path.resolve(input),
       start: selectedStart,
       duration: selectedDuration,
       volume: 0.35,

@@ -98,6 +98,10 @@ const seconds = (value) => {
 
 const sourceVideoExtensions = new Set(["mp4", "mov", "mkv", "webm", "avi", "m4v"]);
 const audioOnlyExtensions = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg"]);
+const musicMediaExtensions = new Set([
+  ...audioOnlyExtensions,
+  ...sourceVideoExtensions,
+]);
 
 const validateSourceVideoPath = (value) => {
   const path = String(value || "").trim();
@@ -427,6 +431,34 @@ const isYoutubeMusicSource = (src) => {
   }
 };
 
+const validateMusicSource = (value) => {
+  const source = String(value || "").trim();
+  if (!source) {
+    throw new Error("Choose a music file or enter a direct music URL first.");
+  }
+
+  if (isYoutubeMusicSource(source)) {
+    throw new Error(
+      "YouTube links cannot be analyzed directly. Download the song first, then choose the local music file.",
+    );
+  }
+
+  let pathname = source.split(/[?#]/)[0];
+  if (isRemoteMusicSource(source)) {
+    try {
+      pathname = new URL(source).pathname;
+    } catch {
+      throw new Error("Enter a valid direct music file URL.");
+    }
+  }
+  const extension = pathname.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() || "";
+  if (extension && !musicMediaExtensions.has(extension)) {
+    throw new Error(
+      "Choose MP3, WAV, M4A, AAC, FLAC, OGG, or a video file that contains audio.",
+    );
+  }
+};
+
 const musicFromControls = () => {
   const src = getMusicSource();
   if (!src) {
@@ -678,6 +710,17 @@ const refreshMusicReadiness = () => {
     setMusicNotice(
       "Local music file needed",
       "YouTube links are not direct music files. Choose a local music file instead.",
+      0,
+    );
+    return;
+  }
+
+  try {
+    validateMusicSource(musicSource);
+  } catch (error) {
+    setMusicNotice(
+      "Choose audio",
+      error instanceof Error ? error.message : "Choose a valid music file.",
       0,
     );
     return;
@@ -1551,16 +1594,7 @@ els.analyzeMusicBtn.addEventListener("click", async () => {
   try {
     const musicSource = getMusicSource();
     setMusicNotice("Checking music setup", "Checking music file and hook timeline...", 3);
-
-    if (!musicSource) {
-      throw new Error("Choose a music file or enter a direct music URL first.");
-    }
-
-    if (isYoutubeMusicSource(musicSource)) {
-      throw new Error(
-        "YouTube links cannot be analyzed directly. Download the song first, then choose the local music file.",
-      );
-    }
+    validateMusicSource(musicSource);
 
     if (!state.project || !state.project.highlights?.length || totalHighlightSeconds() <= 0) {
       throw new Error("Analyze hooks first, then analyze music. Music analysis needs the final hook duration.");
