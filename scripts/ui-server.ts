@@ -832,6 +832,72 @@ const assertSupportedMusicSource = (value: string) => {
   }
 };
 
+const sourceVideoExtensions = new Set([
+  ".mp4",
+  ".mov",
+  ".mkv",
+  ".webm",
+  ".avi",
+  ".m4v",
+]);
+
+const audioOnlyExtensions = new Set([
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".aac",
+  ".flac",
+  ".ogg",
+]);
+
+const assertSourceVideoPath = async (input: string) => {
+  const filePath = path.resolve(input);
+  const extension = path.extname(filePath).toLowerCase();
+
+  if (!existsSync(filePath)) {
+    throw new Error("Source video file does not exist.");
+  }
+
+  if (audioOnlyExtensions.has(extension)) {
+    throw new Error(
+      "That file is audio-only. Choose a source video file such as MP4, MOV, MKV, WEBM, AVI, or M4V. Use the Music section for MP3/WAV/M4A files.",
+    );
+  }
+
+  if (extension && !sourceVideoExtensions.has(extension)) {
+    throw new Error(
+      "Unsupported source file type. Choose a video file such as MP4, MOV, MKV, WEBM, AVI, or M4V.",
+    );
+  }
+
+  const ffprobe = ffprobeStatic.path || "ffprobe";
+  const {stdout} = await execFileAsync(
+    ffprobe,
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "csv=p=0",
+      filePath,
+    ],
+    {maxBuffer: 1024 * 1024, windowsHide: true},
+  );
+  const [width, height] = String(stdout)
+    .trim()
+    .split(",")
+    .map((value) => Number(value));
+
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+    throw new Error(
+      "No usable video stream was found in that file. Choose a real video as the source, or add audio files in the Music section.",
+    );
+  }
+};
+
 const probeMediaDuration = async (input: string) => {
   const ffprobe = ffprobeStatic.path || "ffprobe";
   try {
@@ -1364,7 +1430,7 @@ Add-Type -AssemblyName System.Windows.Forms
 ${dialogOwnerScript}
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Title = 'Choose source video file'
-$dialog.Filter = 'Video files (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v)|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v|All files (*.*)|*.*'
+$dialog.Filter = 'Video files (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v)|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v'
 $dialog.Multiselect = $false
 $dialog.CheckFileExists = $true
 $dialog.InitialDirectory = ${powershellString(initialDirectory)}
@@ -1908,6 +1974,15 @@ const routeApi = async (
       return;
     }
 
+    try {
+      await assertSourceVideoPath(src);
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : "Choose a valid source video file.",
+      });
+      return;
+    }
+
     sendJson(res, 200, {
       cancelled: false,
       src,
@@ -1959,6 +2034,15 @@ const routeApi = async (
 
     if (!input) {
       sendJson(res, 400, {error: "Source video path is required."});
+      return;
+    }
+
+    try {
+      await assertSourceVideoPath(input);
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : "Choose a valid source video file.",
+      });
       return;
     }
 

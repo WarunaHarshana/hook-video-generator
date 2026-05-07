@@ -96,6 +96,27 @@ const seconds = (value) => {
   return Number.isFinite(number) ? `${number.toFixed(2)}s` : "-";
 };
 
+const sourceVideoExtensions = new Set(["mp4", "mov", "mkv", "webm", "avi", "m4v"]);
+const audioOnlyExtensions = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg"]);
+
+const validateSourceVideoPath = (value) => {
+  const path = String(value || "").trim();
+  if (!path) {
+    throw new Error("Choose a source video file first.");
+  }
+
+  const extension = path.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() || "";
+  if (audioOnlyExtensions.has(extension)) {
+    throw new Error(
+      "That file is audio-only. Use the Music section for MP3/WAV/M4A files, and choose a video file as the source.",
+    );
+  }
+
+  if (extension && !sourceVideoExtensions.has(extension)) {
+    throw new Error("Choose a video source file: MP4, MOV, MKV, WEBM, AVI, or M4V.");
+  }
+};
+
 const effectLabels = {
   clean: "Clean cuts",
   auto: "Auto director",
@@ -1366,6 +1387,7 @@ els.analyzeBtn.addEventListener("click", async () => {
   try {
     state.pendingOutputAspectRatio = els.outputAspectRatio.value;
     state.pendingAutoReframe = els.autoReframe.checked;
+    validateSourceVideoPath(els.sourcePath.value);
     els.processNote.textContent = "Starting analysis...";
     const job = await api("/api/analyze", {
       method: "POST",

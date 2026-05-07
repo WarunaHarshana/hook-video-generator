@@ -328,6 +328,10 @@ const parseRate = (rate: string | undefined) => {
 };
 
 const probeVideo = async (input: string) => {
+  if (!existsSync(input)) {
+    throw new Error("Source video file does not exist.");
+  }
+
   const output = await runFfprobe([
     "-v",
     "error",
@@ -355,7 +359,9 @@ const probeVideo = async (input: string) => {
   );
 
   if (!videoStream?.width || !videoStream?.height) {
-    throw new Error("Could not find a video stream with width and height.");
+    throw new Error(
+      "No usable video stream was found. Choose a real source video file, not an audio file. MP3/WAV/M4A files belong in the Music section.",
+    );
   }
 
   const duration = Number(videoStream.duration ?? metadata.format?.duration);
