@@ -878,6 +878,44 @@ const musicMediaExtensions = new Set([
   ".m4v",
 ]);
 
+const probeVideoDimensions = async (input: string) => {
+  try {
+    const ffprobe = ffprobeStatic.path || "ffprobe";
+    const {stdout} = await execFileAsync(
+      ffprobe,
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=p=0",
+        input,
+      ],
+      {maxBuffer: 1024 * 1024, windowsHide: true},
+    );
+    const [width, height] = String(stdout)
+      .trim()
+      .split(",")
+      .map((value) => Number(value));
+
+    if (
+      !Number.isFinite(width) ||
+      width <= 0 ||
+      !Number.isFinite(height) ||
+      height <= 0
+    ) {
+      return null;
+    }
+
+    return {width: Math.round(width), height: Math.round(height)};
+  } catch {
+    return null;
+  }
+};
+
 const assertSourceVideoPath = async (input: string) => {
   const filePath = path.resolve(input);
   const extension = path.extname(filePath).toLowerCase();
@@ -898,28 +936,8 @@ const assertSourceVideoPath = async (input: string) => {
     );
   }
 
-  const ffprobe = ffprobeStatic.path || "ffprobe";
-  const {stdout} = await execFileAsync(
-    ffprobe,
-    [
-      "-v",
-      "error",
-      "-select_streams",
-      "v:0",
-      "-show_entries",
-      "stream=width,height",
-      "-of",
-      "csv=p=0",
-      filePath,
-    ],
-    {maxBuffer: 1024 * 1024, windowsHide: true},
-  );
-  const [width, height] = String(stdout)
-    .trim()
-    .split(",")
-    .map((value) => Number(value));
-
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+  const dimensions = await probeVideoDimensions(filePath);
+  if (!dimensions) {
     throw new Error(
       "No usable video stream was found in that file. Choose a real video as the source, or add audio files in the Music section.",
     );
@@ -1020,6 +1038,54 @@ const resolveWorkspacePath = (value: string | undefined, fallback: string) => {
 
 const evenDimension = (value: number) => {
   return Math.max(2, Math.round(value / 2) * 2);
+};
+
+const sourceDimensionsFromProject = (input: Partial<ProjectJson>) => {
+  const width = Math.max(
+    1,
+    Math.round(normalizeNumber(input.sourceWidth, input.width || 1920)),
+  );
+  const height = Math.max(
+    1,
+    Math.round(normalizeNumber(input.sourceHeight, input.height || 1080)),
+  );
+
+  return {width, height};
+};
+
+const dimensionsForOutputAspectRatio = (
+  outputAspectRatio: OutputAspectRatio,
+  source: {width: number; height: number},
+) => {
+  if (outputAspectRatio === "9:16") {
+    return {width: 1080, height: 1920};
+  }
+
+  if (outputAspectRatio === "1:1") {
+    return {width: 1080, height: 1080};
+  }
+
+  if (outputAspectRatio === "4:5") {
+    return {width: 1080, height: 1350};
+  }
+
+  if (outputAspectRatio === "16:9") {
+    return {width: 1920, height: 1080};
+  }
+
+  return source;
+};
+
+const outputMatchesProject = (
+  project: ProjectJson | null,
+  dimensions: {width: number; height: number} | null,
+) => {
+  return Boolean(
+    project &&
+      dimensions &&
+      Math.abs(dimensions.width - project.width) <= 2 &&
+      Math.abs(dimensions.height - project.height) <= 2,
+  );
 };
 
 const previewDimensionsForProject = (project: ProjectJson | null) => {
@@ -1611,17 +1677,15 @@ const loadProject = async () => {
 
   const input = JSON.parse(await readFile(projectPath, "utf8")) as ProjectJson;
   const outputAspectRatio = normalizeOutputAspectRatio(input.outputAspectRatio);
+  const source = sourceDimensionsFromProject(input);
+  const dimensions = dimensionsForOutputAspectRatio(outputAspectRatio, source);
 
   return {
     ...input,
-    sourceWidth: Math.max(
-      1,
-      Math.round(normalizeNumber(input.sourceWidth, input.width || 1920)),
-    ),
-    sourceHeight: Math.max(
-      1,
-      Math.round(normalizeNumber(input.sourceHeight, input.height || 1080)),
-    ),
+    width: dimensions.width,
+    height: dimensions.height,
+    sourceWidth: source.width,
+    sourceHeight: source.height,
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
@@ -1645,21 +1709,17 @@ const validateProject = (input: ProjectJson): ProjectJson => {
   }
 
   const outputAspectRatio = normalizeOutputAspectRatio(input.outputAspectRatio);
+  const source = sourceDimensionsFromProject(input);
+  const dimensions = dimensionsForOutputAspectRatio(outputAspectRatio, source);
 
   return {
     ...input,
     src: input.src.trim(),
-    width: Math.max(1, Math.round(normalizeNumber(input.width, 1920))),
-    height: Math.max(1, Math.round(normalizeNumber(input.height, 1080))),
+    width: dimensions.width,
+    height: dimensions.height,
     fps: Math.max(1, normalizeNumber(input.fps, 30)),
-    sourceWidth: Math.max(
-      1,
-      Math.round(normalizeNumber(input.sourceWidth, input.width || 1920)),
-    ),
-    sourceHeight: Math.max(
-      1,
-      Math.round(normalizeNumber(input.sourceHeight, input.height || 1080)),
-    ),
+    sourceWidth: source.width,
+    sourceHeight: source.height,
     outputAspectRatio,
     reframeMode:
       outputAspectRatio === "source" ? "none" : normalizeReframeMode(input.reframeMode),
@@ -1992,12 +2052,18 @@ const routeApi = async (
   if (req.method === "GET" && url.pathname === "/api/state") {
     const project = await loadProject();
     const previewDimensions = previewDimensionsForProject(project);
+    const outputDimensions = existsSync(lastOutputPath)
+      ? await probeVideoDimensions(lastOutputPath)
+      : null;
     sendJson(res, 200, {
       project,
       thumbnails: await currentThumbnails(),
       projectPath,
       outputPath: lastOutputPath,
       outputExists: existsSync(lastOutputPath),
+      outputWidth: outputDimensions?.width,
+      outputHeight: outputDimensions?.height,
+      outputMatchesProject: outputMatchesProject(project, outputDimensions),
       previewPath,
       previewExists: existsSync(previewPath),
       previewWidth: previewDimensions?.width,
@@ -2349,12 +2415,22 @@ const routeApi = async (
         kind: "render",
         script: "scripts/render.ts",
         args,
-        result: async () => ({
-          outputPath,
-          outputExists: existsSync(outputPath),
-          requestedOutputPath,
-          renamed: !samePath(requestedOutputPath, outputPath),
-        }),
+        result: async () => {
+          const project = await loadProject();
+          const outputDimensions = existsSync(outputPath)
+            ? await probeVideoDimensions(outputPath)
+            : null;
+
+          return {
+            outputPath,
+            outputExists: existsSync(outputPath),
+            outputWidth: outputDimensions?.width,
+            outputHeight: outputDimensions?.height,
+            outputMatchesProject: outputMatchesProject(project, outputDimensions),
+            requestedOutputPath,
+            renamed: !samePath(requestedOutputPath, outputPath),
+          };
+        },
       }),
     );
     return;

@@ -468,11 +468,17 @@ const reframeObjectPosition = ({
   const y = 0.5 + (focus.y - 0.5) * follow;
 
   if (outputRatio < sourceRatio) {
-    return `${clamp(x * 100, 12, 88).toFixed(2)}% 50%`;
+    const visibleSourceWidth = clamp(outputRatio / sourceRatio, 0.001, 1);
+    const objectPositionX =
+      (x - visibleSourceWidth / 2) / Math.max(0.001, 1 - visibleSourceWidth);
+    return `${clamp(objectPositionX * 100, 0, 100).toFixed(2)}% 50%`;
   }
 
   if (outputRatio > sourceRatio) {
-    return `50% ${clamp(y * 100, 16, 84).toFixed(2)}%`;
+    const visibleSourceHeight = clamp(sourceRatio / outputRatio, 0.001, 1);
+    const objectPositionY =
+      (y - visibleSourceHeight / 2) / Math.max(0.001, 1 - visibleSourceHeight);
+    return `50% ${clamp(objectPositionY * 100, 0, 100).toFixed(2)}%`;
   }
 
   return "50% 50%";
@@ -1544,7 +1550,7 @@ const SourceClip: React.FC<{
     sourceHeight,
   });
   const movementEnabled = resolvedPreset !== "clean";
-  const motionScale = autoReframe ? 1 : 0.42;
+  const motionScale = autoReframe ? 0.58 : 0.42;
   const endScale =
     !movementEnabled || resolvedPreset === "match-push"
       ? 1

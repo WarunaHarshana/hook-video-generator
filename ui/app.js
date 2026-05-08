@@ -1113,17 +1113,22 @@ const updateVideoSources = (serverState = {}) => {
     state.hookVideoSource === "preview" &&
     Boolean(previewPath) &&
     Boolean(serverState.previewExists || state.activeJob?.result?.previewExists);
+  const finalOutputExists = Boolean(
+    serverState.outputExists || state.activeJob?.result?.outputExists,
+  );
+  const finalOutputMatchesProject =
+    serverState.outputMatchesProject ??
+    state.activeJob?.result?.outputMatchesProject ??
+    true;
   const shouldShowOutput = Boolean(state.project) &&
-    (showPreview ||
-      serverState.outputExists ||
-      state.activeJob?.result?.outputExists);
+    (showPreview || (finalOutputExists && finalOutputMatchesProject));
   const outputPath = showPreview ? previewPath : finalOutputPath;
   const displayWidth = showPreview
     ? Number(serverState.previewWidth || state.activeJob?.result?.previewWidth || state.project?.width)
-    : Number(state.project?.width);
+    : Number(serverState.outputWidth || state.activeJob?.result?.outputWidth || state.project?.width);
   const displayHeight = showPreview
     ? Number(serverState.previewHeight || state.activeJob?.result?.previewHeight || state.project?.height)
-    : Number(state.project?.height);
+    : Number(serverState.outputHeight || state.activeJob?.result?.outputHeight || state.project?.height);
 
   if (shouldShowOutput && outputPath) {
     setVideoSource(els.outputVideo, `/api/video?path=${encodeURIComponent(
@@ -1135,7 +1140,10 @@ const updateVideoSources = (serverState = {}) => {
     els.outputVideo.style.aspectRatio = `${displayWidth} / ${displayHeight}`;
   } else {
     clearVideo(els.outputVideo);
-    els.outputMeta.textContent = "-";
+    els.outputMeta.textContent =
+      state.project && finalOutputExists && !finalOutputMatchesProject
+        ? "Render needed"
+        : "-";
     els.outputVideo.style.aspectRatio = state.project
       ? `${state.project.width} / ${state.project.height}`
       : "";
@@ -1492,6 +1500,10 @@ const applyJobUpdate = async (job, options = {}) => {
     updateVideoSources({
       ...data,
       outputExists: job.result?.outputExists ?? data.outputExists,
+      outputWidth: job.result?.outputWidth ?? data.outputWidth,
+      outputHeight: job.result?.outputHeight ?? data.outputHeight,
+      outputMatchesProject:
+        job.result?.outputMatchesProject ?? data.outputMatchesProject,
       outputPath: finalOutputPath,
     });
   }
