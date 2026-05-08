@@ -653,12 +653,16 @@ const musicSummary = (music) => {
   const styleText = style ? ` · ${style} style` : "";
   const energy = music.detected?.suggestedEditEnergy || music.beatSync?.editEnergy;
   const energyText = energy ? ` · ${energy} energy` : "";
+  const confidence = Number(music.detected?.analysisConfidence);
+  const confidenceText = Number.isFinite(confidence)
+    ? ` · ${Math.round(confidence * 100)}% confidence`
+    : "";
   const plan = music.editPlan;
   const planText = plan
     ? ` · ${plan.energyCurve || "steady"} · ${plan.cutPoints?.length || 0} cuts`
     : "";
   const sourceAudioText = music.muteSourceAudio ? " · source muted" : "";
-  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${energyText}${planText}${sourceAudioText}`;
+  return `${seconds(music.start)} to ${seconds(music.start + music.duration)}${scoreText}${beatsText}${styleText}${energyText}${confidenceText}${planText}${sourceAudioText}`;
 };
 
 const musicDirectorSummary = (music) => {
@@ -677,6 +681,14 @@ const musicDirectorSummary = (music) => {
   const energy = music.detected?.suggestedEditEnergy || music.beatSync?.editEnergy || "balanced";
   const cutCount = plan.cutPoints?.length || 0;
   const eventCount = plan.effectEvents?.length || 0;
+  const confidence = Number(music.detected?.analysisConfidence);
+  const confidenceText = Number.isFinite(confidence)
+    ? ` Analysis confidence: ${Math.round(confidence * 100)}%.`
+    : "";
+  const strongBeatCount = Number(music.detected?.strongBeatCount);
+  const strongBeatText = Number.isFinite(strongBeatCount) && strongBeatCount > 0
+    ? ` Strong hits: ${strongBeatCount}.`
+    : "";
   const roles = (plan.cutPoints || []).reduce((counts, cut) => {
     const role = cut.role || "beat";
     counts[role] = (counts[role] || 0) + 1;
@@ -697,7 +709,7 @@ const musicDirectorSummary = (music) => {
     .map(([type, count]) => `${count} ${type}`)
     .join(", ");
 
-  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. Recommended energy: ${energy}. ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}${eventText ? ` Effects: ${eventText}.` : ""}`;
+  return `Music Director: ${tempo} tempo, ${curve} curve, ${cutCount} cut points, ${eventCount} effect hits. Recommended energy: ${energy}.${confidenceText}${strongBeatText} ${sectionText}.${roleText ? ` Roles: ${roleText}.` : ""}${eventText ? ` Effects: ${eventText}.` : ""}`;
 };
 
 const renderBeatTimeline = (music) => {

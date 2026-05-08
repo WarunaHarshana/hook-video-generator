@@ -100,6 +100,8 @@ export type MusicSection = {
   type: MusicSectionType;
   energy: number;
   density: number;
+  transient?: number;
+  confidence?: number;
 };
 
 export type MusicCutPoint = {
@@ -341,7 +343,9 @@ const planStrengthAt = (
   }
 
   const beatStrength = beatStrengthAt(music, timelineSeconds);
-  const sectionEnergy = sectionEnergyAt(music, timelineSeconds);
+  const section = sectionAt(music, timelineSeconds);
+  const sectionEnergy = clamp(Number(section?.energy) || 0.5, 0.18, 1);
+  const sectionTransient = clamp(Number(section?.transient) || 0.35, 0, 1);
   const eventStrength = Math.max(
     effectEventPulseAt(music, timelineSeconds, ["pulse"]),
     effectEventPulseAt(music, timelineSeconds, ["bounce", "snap", "ramp"]),
@@ -349,7 +353,14 @@ const planStrengthAt = (
     effectEventPulseAt(music, timelineSeconds, ["freeze", "push", "glitch"]),
   );
 
-  return clamp(beatStrength * 0.42 + sectionEnergy * 0.36 + eventStrength * 0.32, 0.18, 1);
+  return clamp(
+    beatStrength * 0.36 +
+      sectionEnergy * 0.28 +
+      sectionTransient * 0.16 +
+      eventStrength * 0.3,
+    0.18,
+    1,
+  );
 };
 
 const planPaceAt = (
@@ -363,7 +374,7 @@ const planPaceAt = (
   }
 
   if (section?.type === "build") {
-    return section.density >= 0.52 ? "fast" : "medium";
+    return section.density >= 0.52 || Number(section.transient) >= 0.42 ? "fast" : "medium";
   }
 
   if (section?.type === "intro" || section?.type === "outro") {
@@ -371,6 +382,10 @@ const planPaceAt = (
   }
 
   if (section?.density && section.density >= 0.62) {
+    return "fast";
+  }
+
+  if (Number(section?.transient) >= 0.48) {
     return "fast";
   }
 

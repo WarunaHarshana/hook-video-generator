@@ -10,6 +10,9 @@ type Candidate = {
   duration: number;
   score: number;
   energy: number;
+  transient: number;
+  density: number;
+  confidence: number;
 };
 
 type BeatEvent = {
@@ -64,6 +67,8 @@ type MusicSection = {
   type: MusicSectionType;
   energy: number;
   density: number;
+  transient: number;
+  confidence: number;
 };
 
 type MusicCutPoint = {
@@ -118,6 +123,10 @@ type AnalysisResult = {
       paceShift: number;
       suggestedEffectPreset: EffectPreset;
       effectReason: string;
+      analysisConfidence: number;
+      strongBeatCount: number;
+      dropTime?: number;
+      sectionSummary: string;
       candidates: Candidate[];
     };
   };
@@ -368,6 +377,51 @@ const normalizeBeatEvents = (
   }));
 };
 
+const transientWindows = (windows: number[]) => {
+  if (windows.length === 0) {
+    return [];
+  }
+
+  const maxEnergy = Math.max(...windows, 0.0001);
+  return windows.map((value, index) => {
+    const previous = windows.slice(Math.max(0, index - 3), index);
+    const localAverage = previous.length > 0 ? mean(previous) : value;
+    const rise = Math.max(0, value - localAverage);
+    const localPeak = Math.max(...windows.slice(Math.max(0, index - 2), index + 3), 0.0001);
+
+    return clamp(rise / maxEnergy * 1.35 + (value / localPeak) * 0.18, 0, 1);
+  });
+};
+
+const beatDensityForRange = (
+  beatEvents: BeatEvent[],
+  start: number,
+  end: number,
+) => {
+  const duration = Math.max(0.1, end - start);
+  return clamp(
+    beatEvents.filter((beat) => beat.time >= start && beat.time < end).length /
+      duration /
+      2.2,
+    0,
+    1,
+  );
+};
+
+const transientAtTime = (
+  transients: number[],
+  selectedStart: number,
+  time: number,
+) => {
+  const index = clamp(
+    Math.round((selectedStart + time) / WINDOW_SECONDS),
+    0,
+    Math.max(0, transients.length - 1),
+  );
+
+  return transients[Math.round(index)] ?? 0;
+};
+
 const detectBeatEvents = (pcm: Buffer, audioDuration: number): BeatEvent[] => {
   const energy = rmsWindows(pcm, BEAT_WINDOW_SAMPLES);
   if (energy.length < 8) {
@@ -437,6 +491,8 @@ const detectBeatEvents = (pcm: Buffer, audioDuration: number): BeatEvent[] => {
 
 const rankCandidates = (
   windows: number[],
+  transients: number[],
+  beatEvents: BeatEvent[],
   audioDuration: number,
   targetDuration: number,
 ) => {
@@ -459,6 +515,7 @@ const rankCandidates = (
     }
 
     const segment = windows.slice(startIndex, startIndex + windowCount);
+    const transientSegment = transients.slice(startIndex, startIndex + windowCount);
     const avg = mean(segment);
     const peak = Math.max(...segment, 0);
     const std = standardDeviation(segment, avg);
@@ -470,12 +527,25 @@ const rankCandidates = (
     const peakEnergy = peak / maxEnergy;
     const stability = avg <= 0 ? 0 : Math.max(0, 1 - std / avg);
     const movementScore = Math.min(1, movement / maxEnergy / 0.18);
+    const transientScore = clamp(mean(transientSegment) * 0.65 + Math.max(...transientSegment, 0) * 0.35, 0, 1);
+    const densityScore = beatDensityForRange(beatEvents, start, end);
+    const confidence = clamp(
+      energy * 0.24 +
+        transientScore * 0.24 +
+        densityScore * 0.2 +
+        stability * 0.14 +
+        Math.min(1, segment.length / Math.max(1, windowCount)) * 0.18,
+      0,
+      1,
+    );
     const positionBoost = Math.max(0, Math.sin(progress * Math.PI));
     const score =
-      energy * 0.46 +
-      peakEnergy * 0.18 +
-      stability * 0.14 +
-      movementScore * 0.1 +
+      energy * 0.34 +
+      peakEnergy * 0.12 +
+      transientScore * 0.2 +
+      densityScore * 0.12 +
+      stability * 0.1 +
+      movementScore * 0.06 +
       positionBoost * 0.12;
 
     candidates.push({
@@ -483,6 +553,9 @@ const rankCandidates = (
       duration: Number(targetDuration.toFixed(3)),
       score: Number(score.toFixed(4)),
       energy: Number(energy.toFixed(4)),
+      transient: Number(transientScore.toFixed(4)),
+      density: Number(densityScore.toFixed(4)),
+      confidence: Number(confidence.toFixed(4)),
     });
   }
 
@@ -606,28 +679,37 @@ const sectionTypeForBin = ({
   index,
   count,
   energy,
+  density,
+  transient,
   previousEnergy,
+  previousDensity,
   maxEnergy,
 }: {
   index: number;
   count: number;
   energy: number;
+  density: number;
+  transient: number;
   previousEnergy: number;
+  previousDensity: number;
   maxEnergy: number;
 }): MusicSectionType => {
-  if (index === count - 1 && energy < maxEnergy * 0.72) {
+  const energyRise = energy - previousEnergy;
+  const densityRise = density - previousDensity;
+
+  if (index === count - 1 && energy < maxEnergy * 0.72 && density < 0.48) {
     return "outro";
   }
 
-  if (energy >= maxEnergy * 0.9 && index > 0) {
+  if (energy >= maxEnergy * 0.86 && density >= 0.42 && transient >= 0.24 && index > 0) {
     return "drop";
   }
 
-  if (index > 0 && energy - previousEnergy >= 0.12) {
+  if (index > 0 && (energyRise >= 0.1 || densityRise >= 0.16 || transient >= 0.42)) {
     return "build";
   }
 
-  if (index === 0 && energy < 0.48) {
+  if (index === 0 && energy < 0.5 && density < 0.55) {
     return "intro";
   }
 
@@ -756,14 +838,59 @@ const addEffectEvent = (
   events.push(next);
 };
 
+const effectEventPriority = (event: MusicEffectEvent) => {
+  const typePriority =
+    event.type === "impact"
+      ? 5
+      : event.type === "freeze" || event.type === "glitch"
+        ? 4.6
+        : event.type === "whip" || event.type === "snap"
+          ? 4.2
+          : event.type === "ramp" || event.type === "push"
+            ? 3.4
+            : event.type === "bounce"
+              ? 2.6
+              : event.type === "flash"
+                ? 2.2
+                : 1;
+
+  return typePriority + event.strength;
+};
+
+const finalizeEffectEvents = (
+  events: MusicEffectEvent[],
+  selectedDuration: number,
+  tempo: MusicTempo,
+) => {
+  const maxEvents = Math.max(
+    4,
+    Math.round(
+      selectedDuration *
+        (tempo === "fast" ? 2.15 : tempo === "slow" ? 1.05 : 1.55),
+    ),
+  );
+  const sorted = events.sort((a, b) => a.time - b.time);
+
+  if (sorted.length <= maxEvents) {
+    return sorted;
+  }
+
+  return [...sorted]
+    .sort((a, b) => effectEventPriority(b) - effectEventPriority(a))
+    .slice(0, maxEvents)
+    .sort((a, b) => a.time - b.time);
+};
+
 const buildMusicEditPlan = ({
   windows,
+  transients,
   beatEvents,
   selectedStart,
   selectedDuration,
   beatStyle,
 }: {
   windows: number[];
+  transients: number[];
   beatEvents: BeatEvent[];
   selectedStart: number;
   selectedDuration: number;
@@ -784,16 +911,29 @@ const buildMusicEditPlan = ({
       selectedStart + start,
       selectedStart + end,
     );
+    const transientSegment = windowsForRange(
+      transients,
+      selectedStart + start,
+      selectedStart + end,
+    );
     const energy = clamp(mean(segment) / maxWindowEnergy, 0, 1);
-    const density = clamp(
-      localBeats.filter((beat) => beat.time >= start && beat.time < end).length /
-        Math.max(0.1, end - start) /
-        2.2,
+    const density = beatDensityForRange(localBeats, start, end);
+    const transient = clamp(
+      mean(transientSegment) * 0.62 + Math.max(...transientSegment, 0) * 0.38,
       0,
       1,
     );
     const previousEnergy = sections.at(-1)?.energy ?? energy;
+    const previousDensity = sections.at(-1)?.density ?? density;
     const maxEnergy = Math.max(energy, ...sections.map((section) => section.energy), 0.0001);
+    const confidence = clamp(
+      energy * 0.34 +
+        density * 0.26 +
+        transient * 0.24 +
+        Math.min(1, segment.length / Math.max(1, Math.ceil(sectionLength / WINDOW_SECONDS))) * 0.16,
+      0,
+      1,
+    );
 
     sections.push({
       start: Number(start.toFixed(3)),
@@ -802,11 +942,16 @@ const buildMusicEditPlan = ({
         index,
         count: sectionCount,
         energy,
+        density,
+        transient,
         previousEnergy,
+        previousDensity,
         maxEnergy,
       }),
       energy: Number(energy.toFixed(3)),
       density: Number(density.toFixed(3)),
+      transient: Number(transient.toFixed(3)),
+      confidence: Number(confidence.toFixed(3)),
     });
   }
 
@@ -834,7 +979,15 @@ const buildMusicEditPlan = ({
           : section?.type === "intro" || section?.type === "outro"
             ? -0.08
             : 0;
-    const strength = clamp(beat.strength * 0.72 + (section?.energy ?? 0.5) * 0.28 + sectionBoost, 0, 1);
+    const transient = transientAtTime(transients, selectedStart, beat.time);
+    const strength = clamp(
+      beat.strength * 0.58 +
+        (section?.energy ?? 0.5) * 0.22 +
+        transient * 0.2 +
+        sectionBoost,
+      0,
+      1,
+    );
 
     if (beat.time - lastCut < minGap && strength < 0.82) {
       continue;
@@ -858,9 +1011,10 @@ const buildMusicEditPlan = ({
   for (const beat of localBeats) {
     const section = sectionAtTime(sections, beat.time);
     const sectionEnergy = section?.energy ?? 0.5;
-    const strength = clamp(beat.strength * 0.7 + sectionEnergy * 0.3, 0, 1);
+    const transient = transientAtTime(transients, selectedStart, beat.time);
+    const strength = clamp(beat.strength * 0.52 + sectionEnergy * 0.25 + transient * 0.23, 0, 1);
 
-    if (strength >= 0.34) {
+    if (strength >= 0.42) {
       addEffectEvent(
         effectEvents,
         {
@@ -869,11 +1023,11 @@ const buildMusicEditPlan = ({
           strength: Number(strength.toFixed(3)),
           duration: section?.type === "intro" ? 0.5 : 0.34,
         },
-        tempo === "fast" ? 0.25 : 0.34,
+        tempo === "fast" ? 0.34 : 0.46,
       );
     }
 
-    if (strength >= 0.48 && section?.type !== "intro") {
+    if (strength >= 0.58 && section?.type !== "intro" && section?.type !== "outro") {
       addEffectEvent(
         effectEvents,
         {
@@ -882,11 +1036,11 @@ const buildMusicEditPlan = ({
           strength: Number((strength * 0.92).toFixed(3)),
           duration: 0.22,
         },
-        tempo === "fast" ? 0.42 : 0.62,
+        tempo === "fast" ? 0.58 : 0.78,
       );
     }
 
-    if ((section?.type === "build" || section?.type === "drop") && strength >= 0.5) {
+    if ((section?.type === "build" || section?.type === "drop") && strength >= 0.62) {
       addEffectEvent(
         effectEvents,
         {
@@ -895,11 +1049,11 @@ const buildMusicEditPlan = ({
           strength: Number(strength.toFixed(3)),
           duration: section?.type === "drop" ? 0.2 : 0.34,
         },
-        tempo === "fast" ? 0.48 : 0.7,
+        tempo === "fast" ? 0.62 : 0.86,
       );
     }
 
-    if ((section?.type === "build" || section?.type === "drop") && strength >= 0.58) {
+    if ((section?.type === "build" || section?.type === "drop") && strength >= 0.72) {
       addEffectEvent(
         effectEvents,
         {
@@ -908,11 +1062,11 @@ const buildMusicEditPlan = ({
           strength: Number(strength.toFixed(3)),
           duration: 0.22,
         },
-        tempo === "fast" ? 0.55 : 0.78,
+        tempo === "fast" ? 0.82 : 1.05,
       );
     }
 
-    if ((section?.type === "drop" || strength >= 0.66) && section?.type !== "intro") {
+    if ((section?.type === "drop" || strength >= 0.78) && section?.type !== "intro") {
       addEffectEvent(
         effectEvents,
         {
@@ -921,11 +1075,11 @@ const buildMusicEditPlan = ({
           strength: Number(strength.toFixed(3)),
           duration: 0.18,
         },
-        tempo === "fast" ? 0.55 : 0.82,
+        tempo === "fast" ? 0.78 : 1.05,
       );
     }
 
-    if (section?.type !== "intro" && strength >= 0.7) {
+    if (section?.type !== "intro" && section?.type !== "outro" && strength >= 0.78) {
       addEffectEvent(
         effectEvents,
         {
@@ -933,19 +1087,6 @@ const buildMusicEditPlan = ({
           type: "push",
           strength: Number((strength * 0.9).toFixed(3)),
           duration: 0.24,
-        },
-        0.9,
-      );
-    }
-
-    if (strength >= 0.72 || section?.type === "drop") {
-      addEffectEvent(
-        effectEvents,
-        {
-          time: Number(beat.time.toFixed(3)),
-          type: "impact",
-          strength: Number(strength.toFixed(3)),
-          duration: 0.32,
         },
         1.15,
       );
@@ -956,15 +1097,28 @@ const buildMusicEditPlan = ({
         effectEvents,
         {
           time: Number(beat.time.toFixed(3)),
+          type: "impact",
+          strength: Number(strength.toFixed(3)),
+          duration: 0.32,
+        },
+        1.35,
+      );
+    }
+
+    if (strength >= 0.9 || (section?.type === "drop" && strength >= 0.84)) {
+      addEffectEvent(
+        effectEvents,
+        {
+          time: Number(beat.time.toFixed(3)),
           type: "freeze",
           strength: Number((strength * 0.86).toFixed(3)),
           duration: 0.2,
         },
-        1.25,
+        1.6,
       );
     }
 
-    if (tempo === "fast" && section?.type === "drop" && strength >= 0.84) {
+    if (tempo === "fast" && section?.type === "drop" && strength >= 0.92) {
       addEffectEvent(
         effectEvents,
         {
@@ -983,9 +1137,11 @@ const buildMusicEditPlan = ({
     energyCurve,
     sections,
     cutPoints: cutPoints.slice(0, 120),
-    effectEvents: effectEvents
-      .sort((a, b) => a.time - b.time)
-      .slice(0, 240),
+    effectEvents: finalizeEffectEvents(
+      effectEvents,
+      selectedDuration,
+      tempo,
+    ).slice(0, 240),
   };
 };
 
@@ -1042,12 +1198,14 @@ const suggestEffectPreset = ({
   selectedDuration,
   beatStyle,
   energy,
+  editPlan,
 }: {
   beats: number[];
   selectedStart: number;
   selectedDuration: number;
   beatStyle: BeatSyncIntensity;
   energy: number;
+  editPlan: MusicEditPlan;
 }): {preset: EffectPreset; paceShift: number; reason: string} => {
   const gaps = selectedBeatGaps(beats, selectedStart, selectedDuration);
   const midpoint = selectedStart + selectedDuration / 2;
@@ -1061,20 +1219,35 @@ const suggestEffectPreset = ({
     firstHalfGap > 0 && secondHalfGap > 0
       ? Number((firstHalfGap - secondHalfGap).toFixed(3))
       : 0;
+  const sectionConfidence = mean(editPlan.sections.map((section) => section.confidence));
+  const averageTransient = mean(editPlan.sections.map((section) => section.transient));
+  const hasDrop = editPlan.sections.some((section) => section.type === "drop");
+  const hasBuild = editPlan.sections.some((section) => section.type === "build");
 
-  if (paceShift >= 0.18 && secondHalfGap > 0 && secondHalfGap <= 0.82) {
+  if (sectionConfidence > 0 && sectionConfidence < 0.28) {
     return {
-      preset: "slow-fast-builder",
+      preset: "smooth-velocity",
       paceShift,
-      reason: "music starts slower and gets denser later",
+      reason: "music analysis confidence is low, so the safer smooth style is recommended",
     };
   }
 
-  if (beatStyle === "fast") {
+  if (
+    editPlan.energyCurve === "slow-to-fast" ||
+    (paceShift >= 0.18 && secondHalfGap > 0 && secondHalfGap <= 0.82)
+  ) {
     return {
-      preset: energy >= 0.66 ? "drop-whip" : "velocity-ramp",
+      preset: "slow-fast-builder",
       paceShift,
-      reason: "music has dense, fast beats",
+      reason: "music starts slower and builds toward denser beats",
+    };
+  }
+
+  if (beatStyle === "fast" || hasDrop) {
+    return {
+      preset: energy >= 0.56 || averageTransient >= 0.36 ? "drop-whip" : "velocity-ramp",
+      paceShift,
+      reason: hasDrop ? "music has a detected drop section" : "music has dense, fast beats",
     };
   }
 
@@ -1086,11 +1259,13 @@ const suggestEffectPreset = ({
     };
   }
 
-  if (energy >= 0.42) {
+  if (hasBuild || energy >= 0.42 || averageTransient >= 0.3) {
     return {
       preset: "beat-bounce",
       paceShift,
-      reason: "music has enough energy for punchy cut accents",
+      reason: hasBuild
+        ? "music has a buildup that can support punchy accents"
+        : "music has enough transient energy for punchy cut accents",
     };
   }
 
@@ -1127,12 +1302,15 @@ const main = async () => {
   process.stdout.write("PROGRESS 40 Measuring music energy\n");
   const pcm = await decodeAudio(input);
   const windows = rmsWindows(pcm);
+  const transients = transientWindows(windows);
   const beatEvents = detectBeatEvents(pcm, audioDuration);
   const beats = beatEvents.map((beat) => beat.time);
 
   process.stdout.write("PROGRESS 70 Ranking the strongest music section\n");
   const candidates = rankCandidates(
     windows,
+    transients,
+    beatEvents,
     audioDuration,
     effectiveDuration,
   );
@@ -1141,22 +1319,19 @@ const main = async () => {
     duration: Number(effectiveDuration.toFixed(3)),
     score: 0,
     energy: 0,
+    transient: 0,
+    density: 0,
+    confidence: 0,
   };
   const selectedStart = useEntireFile ? 0 : best.start;
   const selectedDuration = useEntireFile
     ? Number(audioDuration.toFixed(3))
     : best.duration;
   const beatStyle = suggestBeatStyle(beats, selectedStart, selectedDuration);
-  const effect = suggestEffectPreset({
-    beats,
-    selectedStart,
-    selectedDuration,
-    beatStyle: beatStyle.intensity,
-    energy: best.energy,
-  });
   process.stdout.write("PROGRESS 82 Building music edit plan\n");
   const editPlan = buildMusicEditPlan({
     windows,
+    transients,
     beatEvents,
     selectedStart,
     selectedDuration,
@@ -1167,6 +1342,26 @@ const main = async () => {
     selectedDuration,
     editPlan,
   });
+  const effect = suggestEffectPreset({
+    beats,
+    selectedStart,
+    selectedDuration,
+    beatStyle: beatStyle.intensity,
+    energy: best.energy,
+    editPlan,
+  });
+  const analysisConfidence = clamp(
+    best.confidence * 0.42 +
+      Math.min(1, beatStyle.beatCount / Math.max(4, selectedDuration * 0.8)) * 0.26 +
+      mean(editPlan.sections.map((section) => section.confidence)) * 0.32,
+    0,
+    1,
+  );
+  const strongBeatCount = editPlan.cutPoints.filter((cut) =>
+    cut.role === "strong" || cut.role === "drop" || cut.strength >= 0.78,
+  ).length;
+  const dropTime = editPlan.sections.find((section) => section.type === "drop")?.start;
+  const sectionSummary = editPlan.sections.map((section) => section.type).join(" -> ");
   const result: AnalysisResult = {
     music: {
       src: isRemoteMediaUrl(input) ? input : path.resolve(input),
@@ -1197,6 +1392,10 @@ const main = async () => {
         paceShift: effect.paceShift,
         suggestedEffectPreset: effect.preset,
         effectReason: effect.reason,
+        analysisConfidence: Number(analysisConfidence.toFixed(3)),
+        strongBeatCount,
+        dropTime: Number.isFinite(dropTime) ? Number(dropTime?.toFixed(3)) : undefined,
+        sectionSummary,
         candidates,
       },
     },

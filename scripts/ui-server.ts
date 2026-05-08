@@ -123,6 +123,8 @@ type MusicSection = {
   type: MusicSectionType;
   energy: number;
   density: number;
+  transient?: number;
+  confidence?: number;
 };
 
 type MusicCutPoint = {
@@ -172,11 +174,18 @@ type MusicSettings = {
     paceShift?: number;
     suggestedEffectPreset?: EffectPreset;
     effectReason?: string;
+    analysisConfidence?: number;
+    strongBeatCount?: number;
+    dropTime?: number;
+    sectionSummary?: string;
     candidates?: Array<{
       start: number;
       duration: number;
       score: number;
       energy: number;
+      transient?: number;
+      density?: number;
+      confidence?: number;
     }>;
   };
 };
@@ -538,6 +547,8 @@ const normalizeMusicEditPlan = (value: unknown): MusicEditPlan | undefined => {
           type: normalizeMusicSectionType(section?.type),
           energy: clampNumber(section?.energy, 0, 1, 0.5),
           density: clampNumber(section?.density, 0, 1, 0.5),
+          transient: clampNumber(section?.transient, 0, 1, 0.35),
+          confidence: clampNumber(section?.confidence, 0, 1, 0.5),
         }))
         .filter((section) => section.end > section.start)
     : [];
