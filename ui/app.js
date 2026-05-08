@@ -1482,10 +1482,17 @@ const applyJobUpdate = async (job, options = {}) => {
 
   if (job.kind === "render") {
     state.hookVideoSource = "output";
+    const finalOutputPath = job.result?.outputPath ?? data.outputPath;
+    if (finalOutputPath) {
+      els.outputPath.value = finalOutputPath;
+    }
+    els.processNote.textContent = job.result?.renamed
+      ? `Render complete. Existing output was kept; saved as ${finalOutputPath}`
+      : `Render complete. Saved as ${finalOutputPath}`;
     updateVideoSources({
       ...data,
       outputExists: job.result?.outputExists ?? data.outputExists,
-      outputPath: job.result?.outputPath ?? data.outputPath,
+      outputPath: finalOutputPath,
     });
   }
 

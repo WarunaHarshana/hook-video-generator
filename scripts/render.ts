@@ -1,7 +1,7 @@
 import {bundle} from "@remotion/bundler";
 import {renderMedia, selectComposition} from "@remotion/renderer";
 import {createReadStream, existsSync, statSync} from "node:fs";
-import {readFile} from "node:fs/promises";
+import {mkdir, readFile} from "node:fs/promises";
 import http, {type IncomingMessage, type ServerResponse} from "node:http";
 import path from "node:path";
 import type {HookVideoInputProps} from "../src/HookVideo";
@@ -44,6 +44,33 @@ const readNumberFlag = (name: string) => {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const hasFlag = (name: string) => {
+  return process.argv.includes(name);
+};
+
+const availableOutputPath = (requestedPath: string) => {
+  const resolved = path.resolve(requestedPath);
+  if (!existsSync(resolved) || hasFlag("--overwrite")) {
+    return resolved;
+  }
+
+  const directory = path.dirname(resolved);
+  const extension = path.extname(resolved) || ".mp4";
+  const baseName = path.basename(resolved, path.extname(resolved) || undefined);
+
+  for (let index = 1; index < 10000; index += 1) {
+    const candidate = path.join(directory, `${baseName}-${index}${extension}`);
+    if (!existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-");
+  return path.join(directory, `${baseName}-${timestamp}${extension}`);
 };
 
 const readTimeoutInMilliseconds = () => {
@@ -332,7 +359,8 @@ const renderSettingsForMode = (
 
 const main = async () => {
   const projectPath = path.resolve(readFlag("--project") ?? "project.json");
-  const outputLocation = path.resolve(readFlag("--out") ?? "hook.mp4");
+  const requestedOutputLocation = path.resolve(readFlag("--out") ?? "hook.mp4");
+  const outputLocation = availableOutputPath(requestedOutputLocation);
   const gl = readFlag("--gl");
   const concurrency = readNumberFlag("--concurrency");
   const renderMode = readRenderMode();
@@ -346,8 +374,14 @@ const main = async () => {
   const renderSettings = renderSettingsForMode(renderMode, chromiumGl);
 
   const {inputProps, publicDir, cleanup} = await loadProject(projectPath);
+  await mkdir(path.dirname(outputLocation), {recursive: true});
 
   try {
+    if (outputLocation !== requestedOutputLocation) {
+      process.stdout.write(
+        `Output exists, saving without overwrite: ${outputLocation}\n`,
+      );
+    }
     process.stdout.write(
       `Render mode: ${renderMode}; hardware acceleration: ${
         renderSettings.hardwareAcceleration

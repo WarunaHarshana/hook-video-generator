@@ -1134,6 +1134,29 @@ const samePath = (left: string, right: string) => {
     : resolvedLeft === resolvedRight;
 };
 
+const availableOutputPath = (requestedPath: string) => {
+  const resolved = path.resolve(requestedPath);
+  if (!existsSync(resolved)) {
+    return resolved;
+  }
+
+  const directory = path.dirname(resolved);
+  const extension = path.extname(resolved) || ".mp4";
+  const baseName = path.basename(resolved, path.extname(resolved) || undefined);
+
+  for (let index = 1; index < 10000; index += 1) {
+    const candidate = path.join(directory, `${baseName}-${index}${extension}`);
+    if (!existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-");
+  return path.join(directory, `${baseName}-${timestamp}${extension}`);
+};
+
 const isManagedWorkspacePath = (filePath: string) => {
   const resolved = path.resolve(filePath);
   return (
@@ -1468,7 +1491,8 @@ const currentThumbnails = async () => {
 const chooseOutputPath = async (currentPath: string | undefined) => {
   const resolved = resolveWorkspacePath(currentPath, defaultOutputPath);
   const initialDirectory = path.dirname(resolved);
-  const fileName = path.basename(resolved) || "hook.mp4";
+  const suggestedPath = availableOutputPath(resolved);
+  const fileName = path.basename(suggestedPath) || "hook.mp4";
   const script = `
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -2291,7 +2315,8 @@ const routeApi = async (
       renderMode?: string;
       renderTimeoutMinutes?: number;
     }>(req);
-    const outputPath = resolveWorkspacePath(body.out, defaultOutputPath);
+    const requestedOutputPath = resolveWorkspacePath(body.out, defaultOutputPath);
+    const outputPath = availableOutputPath(requestedOutputPath);
     lastOutputPath = outputPath;
     const args = [
       "--project",
@@ -2327,6 +2352,8 @@ const routeApi = async (
         result: async () => ({
           outputPath,
           outputExists: existsSync(outputPath),
+          requestedOutputPath,
+          renamed: !samePath(requestedOutputPath, outputPath),
         }),
       }),
     );
