@@ -534,6 +534,13 @@ type BeatDuration = {
   sectionType?: MusicSectionType;
 };
 
+type SourceCandidate = {
+  highlight: HighlightSegment;
+  cursor: number;
+  sourceIndex: number;
+  sourcePosition: number;
+};
+
 type DirectorCut = {
   time: number;
   role: MusicCutRole;
@@ -635,6 +642,43 @@ const metadataSimilarity = (
       : 0;
 
   return clamp(1 - distance + keyPenalty, 0, 1);
+};
+
+const reframeForSegment = (
+  reframe: ReframePath | undefined,
+  offset: number,
+  duration: number,
+): ReframePath | undefined => {
+  if (!reframe?.keyframes?.length) {
+    return undefined;
+  }
+
+  const windowStart = Math.max(0, offset - 0.35);
+  const windowEnd = offset + duration + 0.35;
+  const keyframes = reframe.keyframes
+    .filter((keyframe) => keyframe.time >= windowStart && keyframe.time <= windowEnd)
+    .map((keyframe) => ({
+      ...keyframe,
+      time: clamp(keyframe.time - offset, 0, duration),
+    }));
+
+  if (keyframes.length === 0) {
+    const closest = reframe.keyframes.reduce((best, keyframe) => {
+      return Math.abs(keyframe.time - offset) < Math.abs(best.time - offset)
+        ? keyframe
+        : best;
+    }, reframe.keyframes[0]);
+
+    return {
+      ...reframe,
+      keyframes: [{...closest, time: 0}],
+    };
+  }
+
+  return {
+    ...reframe,
+    keyframes,
+  };
 };
 
 const shouldKeepDirectorCut = (
@@ -770,9 +814,14 @@ const assignBeatDurationsToHighlights = (
   targetDuration: number,
   editEnergy: EditEnergy,
 ) => {
-  const sources = highlights.map((highlight) => ({
+  const minStart = Math.min(...highlights.map((highlight) => Number(highlight.start) || 0));
+  const maxStart = Math.max(...highlights.map((highlight) => Number(highlight.start) || 0));
+  const sourceSpan = Math.max(1, maxStart - minStart);
+  const sources: SourceCandidate[] = highlights.map((highlight, sourceIndex) => ({
     highlight,
     cursor: 0,
+    sourceIndex,
+    sourcePosition: clamp(((Number(highlight.start) || 0) - minStart) / sourceSpan, 0, 1),
   }));
   const synced: HighlightSegment[] = [];
   let outputCursor = 0;
@@ -781,13 +830,32 @@ const assignBeatDurationsToHighlights = (
   let previousStart = -1;
   let previousMetadata: HighlightMetadata | undefined;
   const recentSources: number[] = [];
+  const sourceUseCount = new Map<number, number>();
   const config = editEnergyConfig(editEnergy);
 
   const remainingFor = (index: number) => {
     return Math.max(0, sources[index].highlight.duration - sources[index].cursor);
   };
 
-  const chooseSource = (beat: BeatDuration) => {
+  const minimumRecentWindow = Math.min(
+    sources.length > 4 ? 3 : sources.length > 2 ? 2 : 1,
+    Math.max(0, sources.length - 1),
+  );
+
+  const hasFreshAlternative = (blockedIndex: number, beat: BeatDuration) => {
+    return sources.some((source, index) => {
+      if (index === blockedIndex || recentSources.includes(index)) {
+        return false;
+      }
+
+      return remainingFor(index) >= Math.min(beat.duration, 0.08);
+    });
+  };
+
+  const chooseSource = (beat: BeatDuration, beatIndex: number) => {
+    const openingTease = outputCursor < Math.min(3.2, targetDuration * 0.22);
+    const dropMoment = beat.role === "drop" || beat.sectionType === "drop";
+    const buildMoment = beat.role === "strong" || beat.sectionType === "build";
     const candidates = sources
       .map((source, index) => {
         const remaining = remainingFor(index);
@@ -824,15 +892,37 @@ const assignBeatDurationsToHighlights = (
                 : sectionPrefersStory(beat.sectionType)
                   ? 0.9
                   : 1;
+        const sourceUses = sourceUseCount.get(index) ?? 0;
+        const usePenalty = clamp(sourceUses / Math.max(1, durations.length / Math.max(1, sources.length)), 0, 1.8);
+        const lateTeaseScore = openingTease ? source.sourcePosition * 1.9 : 0;
+        const earlySourcePenalty = openingTease ? (1 - source.sourcePosition) * 0.65 : 0;
+        const dropLateBoost = dropMoment ? source.sourcePosition * 0.45 : 0;
+        const buildVarietyBoost = buildMoment ? timestampDistance * 0.42 : 0;
+        const hardRecentPenalty =
+          sources.length > 2 && recentSources.includes(index) && hasFreshAlternative(index, beat)
+            ? 2.8
+            : 0;
+        const hardPreviousPenalty =
+          sources.length > 1 && index === previousSource && hasFreshAlternative(index, beat)
+            ? 3.6
+            : 0;
         const fitPenalty = canFit ? 0 : 0.45;
         const score =
-          timestampDistance * 1.35 +
+          timestampDistance * 1.55 +
           roleScore * roleWeight +
+          lateTeaseScore +
+          dropLateBoost +
+          buildVarietyBoost +
           (sources.length - rotationDistance) * 0.03 +
-          recentPenalty * (beat.role === "drop" ? 1.4 : 0.85) -
-          previousPenalty * 1.1 -
-          similarityPenalty * 0.62 -
-          sameVarietyPenalty -
+          (beatIndex === 0 ? source.sourcePosition * 0.85 : 0) -
+          recentPenalty * (beat.role === "drop" ? 1.65 : 1.05) -
+          previousPenalty * 1.45 -
+          hardRecentPenalty -
+          hardPreviousPenalty -
+          similarityPenalty * 0.86 -
+          sameVarietyPenalty * 1.25 -
+          usePenalty -
+          earlySourcePenalty -
           fitPenalty;
 
         return {index, score};
@@ -843,12 +933,13 @@ const assignBeatDurationsToHighlights = (
     return candidates[0]?.index ?? -1;
   };
 
-  for (const beat of durations) {
+  for (let beatIndex = 0; beatIndex < durations.length; beatIndex += 1) {
+    const beat = durations[beatIndex];
     if (outputCursor >= targetDuration - 0.05 || synced.length >= 180) {
       break;
     }
 
-    const sourceIndex = chooseSource(beat);
+    const sourceIndex = chooseSource(beat, beatIndex);
     if (sourceIndex < 0) {
       break;
     }
@@ -869,6 +960,7 @@ const assignBeatDurationsToHighlights = (
       start: Number((source.highlight.start + source.cursor).toFixed(3)),
       duration: Number(duration.toFixed(3)),
       metadata: source.highlight.metadata,
+      reframe: reframeForSegment(source.highlight.reframe, source.cursor, duration),
     });
 
     previousStart = source.highlight.start + source.cursor;
@@ -876,8 +968,12 @@ const assignBeatDurationsToHighlights = (
     source.cursor += duration;
     outputCursor += duration;
     previousSource = sourceIndex;
+    sourceUseCount.set(sourceIndex, (sourceUseCount.get(sourceIndex) ?? 0) + 1);
     recentSources.push(sourceIndex);
-    const maxRecent = Math.min(config.recentWindow, Math.max(0, sources.length - 1));
+    const maxRecent = Math.max(
+      minimumRecentWindow,
+      Math.min(config.recentWindow + (editEnergy === "aggressive" ? 1 : 0), Math.max(0, sources.length - 1)),
+    );
     while (recentSources.length > maxRecent) {
       recentSources.shift();
     }
@@ -1367,9 +1463,10 @@ const SourceClip: React.FC<{
     sourceWidth,
     sourceHeight,
   });
-  const movementEnabled = autoReframe;
+  const movementEnabled = resolvedPreset !== "clean";
+  const motionScale = autoReframe ? 1 : 0.42;
   const endScale =
-    !movementEnabled || resolvedPreset === "clean" || resolvedPreset === "match-push"
+    !movementEnabled || resolvedPreset === "match-push"
       ? 1
       : resolvedPreset === "smooth-velocity"
         ? 1.038
@@ -1388,10 +1485,10 @@ const SourceClip: React.FC<{
         ? Easing.inOut(Easing.cubic)
         : Easing.out(Easing.cubic),
   });
-  const rampScale = rampPulse * 0.018;
-  const bounceScale = bouncePulse * 0.026;
-  const snapScale = snapPulse * 0.052;
-  const freezeScale = impactPulse * (resolvedPreset === "freeze-hit" ? 0.02 : 0.012);
+  const rampScale = rampPulse * 0.018 * motionScale;
+  const bounceScale = bouncePulse * 0.026 * motionScale;
+  const snapScale = snapPulse * 0.052 * motionScale;
+  const freezeScale = impactPulse * (resolvedPreset === "freeze-hit" ? 0.02 : 0.012) * motionScale;
   const effectScale =
     movementEnabled &&
     (resolvedPreset === "velocity-ramp" ||
@@ -1414,7 +1511,8 @@ const SourceClip: React.FC<{
                   ? 0.024
                   : resolvedPreset === "glitch-lite"
                     ? 0.018
-                    : 0.028)
+                    : 0.028) *
+        motionScale
       : 0;
   const shakePreset =
     resolvedPreset === "freeze-hit"
@@ -1432,7 +1530,8 @@ const SourceClip: React.FC<{
         Math.max(styledPulse, impactPulse * 1.15, whipPulse * 0.72, glitchPulse) *
         Math.max(1.5, width * 0.0026) *
         (0.35 + clip.effectStrength * 0.42) *
-        shakePreset
+        shakePreset *
+        motionScale
       : 0;
   const direction = index % 2 === 0 ? 1 : -1;
   const slideAmount =
@@ -1451,7 +1550,8 @@ const SourceClip: React.FC<{
               : resolvedPreset === "drop-whip"
                 ? 0.02
                 : 0.014),
-        )
+        ) *
+        motionScale
       : 0;
   const rotation =
     movementEnabled &&
@@ -1467,15 +1567,30 @@ const SourceClip: React.FC<{
             ? 0.28
             : resolvedPreset === "glitch-lite"
               ? 0.18
-              : 0.2)
+              : 0.2) *
+        motionScale
+      : 0;
+  const bounceY =
+    movementEnabled && resolvedPreset === "beat-bounce"
+      ? -Math.sin(Math.min(1, bouncePulse) * Math.PI) * Math.max(2, height * 0.006) * motionScale
+      : 0;
+  const smoothDrift =
+    movementEnabled && resolvedPreset === "smooth-velocity"
+      ? Math.sin((frame / Math.max(1, clip.durationInFrames)) * Math.PI * 2 + index) *
+        Math.max(1, width * 0.002) *
+        motionScale
+      : 0;
+  const matchPushY =
+    movementEnabled && resolvedPreset === "match-push"
+      ? -pushPulse * Math.max(2, height * 0.008) * motionScale
       : 0;
   const freezeNudge =
     movementEnabled && resolvedPreset === "freeze-hit"
-      ? Math.round(Math.sin(frame * Math.PI) * impactPulse * 2)
+      ? Math.round(Math.sin(frame * Math.PI) * impactPulse * 2 * motionScale)
       : 0;
   const glitchNudge =
     movementEnabled && resolvedPreset === "glitch-lite"
-      ? Math.round(Math.sin(frame * 4.6 + index) * glitchPulse * Math.max(2, width * 0.003))
+      ? Math.round(Math.sin(frame * 4.6 + index) * glitchPulse * Math.max(2, width * 0.003) * motionScale)
       : 0;
   const cinematicRampScaleFactor = isBuilderPreset ? 0.55 : 1;
   const totalScale =
@@ -1483,7 +1598,7 @@ const SourceClip: React.FC<{
     effectScale * cinematicRampScaleFactor +
     (movementEnabled ? rampScale + bounceScale + snapScale + freezeScale : 0);
   const transform = movementEnabled
-    ? `translate3d(${shakeAmount + slideAmount + freezeNudge + glitchNudge}px, 0, 0) scale(${totalScale}) rotate(${rotation}deg)`
+    ? `translate3d(${shakeAmount + slideAmount + smoothDrift + freezeNudge + glitchNudge}px, ${bounceY + matchPushY}px, 0) scale(${totalScale}) rotate(${rotation}deg)`
     : undefined;
   const clipPath =
     movementEnabled && resolvedPreset === "glitch-lite" && glitchPulse > 0.05
