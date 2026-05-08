@@ -808,16 +808,88 @@ const buildDirectorDurations = ({
   return durations;
 };
 
+const mergeBeatDurationsForClipVariety = (
+  durations: BeatDuration[],
+  sourceCount: number,
+  targetDuration: number,
+) => {
+  if (sourceCount <= 0 || durations.length <= sourceCount) {
+    return durations;
+  }
+
+  const maxSegments = Math.max(1, Math.min(sourceCount, durations.length));
+  const idealDuration = targetDuration / maxSegments;
+  const merged: BeatDuration[] = [];
+  let current: BeatDuration | null = null;
+
+  const strongerRole = (left: MusicCutRole, right: MusicCutRole) => {
+    const priority: Record<MusicCutRole, number> = {
+      transition: 1,
+      beat: 2,
+      fill: 3,
+      strong: 4,
+      drop: 5,
+    };
+
+    return priority[right] > priority[left] ? right : left;
+  };
+
+  const pushCurrent = () => {
+    if (current && current.duration >= 0.08) {
+      merged.push({
+        ...current,
+        duration: Number(current.duration.toFixed(3)),
+        strength: Number(current.strength.toFixed(3)),
+      });
+    }
+    current = null;
+  };
+
+  for (const duration of durations) {
+    if (!current) {
+      current = {...duration};
+    } else {
+      current = {
+        duration: current.duration + duration.duration,
+        role: strongerRole(current.role, duration.role),
+        strength: Math.max(current.strength, duration.strength),
+        sectionType:
+          duration.role === "drop" || duration.role === "strong"
+            ? duration.sectionType ?? current.sectionType
+            : current.sectionType ?? duration.sectionType,
+      };
+    }
+
+    const remainingInput = durations.length - durations.indexOf(duration) - 1;
+    const remainingSlots = maxSegments - merged.length - 1;
+    const shouldClose =
+      current.duration >= idealDuration &&
+      remainingSlots > 0 &&
+      remainingInput >= remainingSlots;
+
+    if (shouldClose) {
+      pushCurrent();
+    }
+  }
+
+  pushCurrent();
+
+  return merged.length > 0 ? merged.slice(0, maxSegments) : durations;
+};
+
 const assignBeatDurationsToHighlights = (
   highlights: HighlightSegment[],
   durations: BeatDuration[],
   targetDuration: number,
   editEnergy: EditEnergy,
 ) => {
-  const minStart = Math.min(...highlights.map((highlight) => Number(highlight.start) || 0));
-  const maxStart = Math.max(...highlights.map((highlight) => Number(highlight.start) || 0));
+  const chronologicalHighlights = [...highlights].sort(
+    (a, b) => (Number(a.start) || 0) - (Number(b.start) || 0),
+  );
+  const minStart = Math.min(...chronologicalHighlights.map((highlight) => Number(highlight.start) || 0));
+  const maxStart = Math.max(...chronologicalHighlights.map((highlight) => Number(highlight.start) || 0));
   const sourceSpan = Math.max(1, maxStart - minStart);
-  const sources: SourceCandidate[] = highlights.map((highlight, sourceIndex) => ({
+  const sources: SourceCandidate[] = chronologicalHighlights.map((highlight, sourceIndex) => ({
     highlight,
     cursor: 0,
     sourceIndex,
@@ -852,10 +924,12 @@ const assignBeatDurationsToHighlights = (
     });
   };
 
-  const chooseSource = (beat: BeatDuration, beatIndex: number) => {
-    const openingTease = outputCursor < Math.min(3.2, targetDuration * 0.22);
+  const chooseSource = (beat: BeatDuration) => {
     const dropMoment = beat.role === "drop" || beat.sectionType === "drop";
     const buildMoment = beat.role === "strong" || beat.sectionType === "build";
+    const useCounts = sources.map((_, index) => sourceUseCount.get(index) ?? 0);
+    const minUseCount = Math.min(...useCounts);
+    const maxRotationDistance = Math.max(1, sources.length - 1);
     const candidates = sources
       .map((source, index) => {
         const remaining = remainingFor(index);
@@ -893,36 +967,37 @@ const assignBeatDurationsToHighlights = (
                   ? 0.9
                   : 1;
         const sourceUses = sourceUseCount.get(index) ?? 0;
-        const usePenalty = clamp(sourceUses / Math.max(1, durations.length / Math.max(1, sources.length)), 0, 1.8);
-        const lateTeaseScore = openingTease ? source.sourcePosition * 1.9 : 0;
-        const earlySourcePenalty = openingTease ? (1 - source.sourcePosition) * 0.65 : 0;
-        const dropLateBoost = dropMoment ? source.sourcePosition * 0.45 : 0;
+        const usePenalty = clamp(sourceUses - minUseCount, 0, 4) * 1.25;
+        const freshRoundBoost = sourceUses === minUseCount ? 1.15 : 0;
+        const chronologicalScore = 1 - clamp(rotationDistance / maxRotationDistance, 0, 1);
+        const timelinePosition = clamp(outputCursor / Math.max(0.1, targetDuration), 0, 1);
+        const storyPositionScore = 1 - Math.abs(source.sourcePosition - timelinePosition);
+        const dropLateBoost = dropMoment ? source.sourcePosition * 0.18 : 0;
         const buildVarietyBoost = buildMoment ? timestampDistance * 0.42 : 0;
         const hardRecentPenalty =
           sources.length > 2 && recentSources.includes(index) && hasFreshAlternative(index, beat)
-            ? 2.8
+            ? 3.8
             : 0;
         const hardPreviousPenalty =
           sources.length > 1 && index === previousSource && hasFreshAlternative(index, beat)
-            ? 3.6
+            ? 4.6
             : 0;
         const fitPenalty = canFit ? 0 : 0.45;
         const score =
-          timestampDistance * 1.55 +
+          timestampDistance * 0.9 +
+          chronologicalScore * 2.45 +
+          storyPositionScore * 0.65 +
           roleScore * roleWeight +
-          lateTeaseScore +
+          freshRoundBoost +
           dropLateBoost +
           buildVarietyBoost +
-          (sources.length - rotationDistance) * 0.03 +
-          (beatIndex === 0 ? source.sourcePosition * 0.85 : 0) -
-          recentPenalty * (beat.role === "drop" ? 1.65 : 1.05) -
-          previousPenalty * 1.45 -
+          -recentPenalty * 1.35 -
+          previousPenalty * 1.85 -
           hardRecentPenalty -
           hardPreviousPenalty -
           similarityPenalty * 0.86 -
           sameVarietyPenalty * 1.25 -
           usePenalty -
-          earlySourcePenalty -
           fitPenalty;
 
         return {index, score};
@@ -939,7 +1014,7 @@ const assignBeatDurationsToHighlights = (
       break;
     }
 
-    const sourceIndex = chooseSource(beat, beatIndex);
+    const sourceIndex = chooseSource(beat);
     if (sourceIndex < 0) {
       break;
     }
@@ -1075,9 +1150,14 @@ export const buildBeatSyncedHighlights = (
     editEnergy,
     exactCuts: plannedCuts.length >= 1,
   });
+  const varietyDurations = mergeBeatDurationsForClipVariety(
+    durations,
+    highlights.length,
+    targetDuration,
+  );
   const synced = assignBeatDurationsToHighlights(
     highlights,
-    durations,
+    varietyDurations,
     targetDuration,
     editEnergy,
   );
