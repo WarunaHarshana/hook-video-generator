@@ -1010,6 +1010,76 @@ const buildCandidatePool = ({
   return pool;
 };
 
+const blendTopHookSignals = (values: number[]) => {
+  const [first = 0, second = 0, third = 0] = [...values].sort((a, b) => b - a);
+
+  return clamp(first * 0.55 + second * 0.3 + third * 0.15, 0, 1);
+};
+
+const hookFocusForCandidate = (candidate: HookCandidate) => {
+  if (candidate.dialogueScore >= 0.62 || candidate.faceScore >= 0.62) {
+    return "dialogue";
+  }
+
+  if (candidate.motionScore >= 0.62 && candidate.spikeScore >= 0.5) {
+    return "action";
+  }
+
+  if (candidate.motionScore >= 0.62) {
+    return "motion";
+  }
+
+  if (candidate.sceneScore >= 0.55 || candidate.shotDensityScore >= 0.58) {
+    return "scene";
+  }
+
+  return "balanced";
+};
+
+const candidateVarietyKey = (candidate: HookCandidate) => {
+  return [
+    hookFocusForCandidate(candidate),
+    `motion-${scoreLevel(candidate.motionScore)}`,
+    `scene-${scoreLevel(candidate.sceneScore)}`,
+    `talk-${scoreLevel(candidate.dialogueScore)}`,
+  ].join("|");
+};
+
+const candidateSelectionScore = ({
+  candidate,
+  selected,
+  minDistance,
+}: {
+  candidate: HookCandidate;
+  selected: HookCandidate[];
+  minDistance: number;
+}) => {
+  const varietyKey = candidateVarietyKey(candidate);
+  const varietyRepeats = selected.filter(
+    (item) => candidateVarietyKey(item) === varietyKey,
+  ).length;
+  const nearby = selected.some(
+    (item) => Math.abs(item.start - candidate.start) < minDistance,
+  );
+  const clustered = selected.some(
+    (item) => Math.abs(item.start - candidate.start) < minDistance * 1.8,
+  );
+  const similarEnergy = selected.filter(
+    (item) =>
+      scoreLevel(item.motionScore) === scoreLevel(candidate.motionScore) &&
+      scoreLevel(item.spikeScore) === scoreLevel(candidate.spikeScore) &&
+      scoreLevel(item.dialogueScore) === scoreLevel(candidate.dialogueScore),
+  ).length;
+
+  return (
+    candidate.score -
+    varietyRepeats * 0.075 -
+    similarEnergy * 0.045 -
+    (nearby ? 0.34 : 0) -
+    (clustered ? 0.08 : 0)
+  );
+};
+
 const scoreCandidates = async ({
   input,
   candidates,
@@ -1037,14 +1107,32 @@ const scoreCandidates = async ({
       ? audio.dialogueScore * 0.62 + faceScore * 0.38
       : audio.dialogueScore;
     const openingPenalty = candidate.start < clipDuration * 0.7 ? 0.72 : 1;
+    const signalBlend = blendTopHookSignals([
+      candidate.sceneScore,
+      candidate.shotDensityScore,
+      motionScore,
+      audio.spikeScore,
+      faceDialogueScore,
+    ]);
+    const hookLift = clamp(
+      motionScore * 0.28 +
+        audio.spikeScore * 0.25 +
+        faceDialogueScore * 0.22 +
+        candidate.sceneScore * 0.15 +
+        candidate.shotDensityScore * 0.1,
+      0,
+      1,
+    );
     const score =
-      candidate.sceneScore * 0.1 +
-      candidate.shotDensityScore * 0.12 +
-      motionScore * 0.2 +
-      audio.loudnessScore * 0.15 +
-      audio.spikeScore * 0.13 +
-      faceDialogueScore * 0.19 +
-      candidate.targetScore * 0.11;
+      candidate.sceneScore * 0.08 +
+      candidate.shotDensityScore * 0.1 +
+      motionScore * 0.18 +
+      audio.loudnessScore * 0.1 +
+      audio.spikeScore * 0.16 +
+      faceDialogueScore * 0.16 +
+      candidate.targetScore * 0.08 +
+      signalBlend * 0.1 +
+      hookLift * 0.04;
 
     scored.push({
       ...candidate,
@@ -1059,7 +1147,7 @@ const scoreCandidates = async ({
 
     progress(
       48 + (index / total) * 32,
-      `Scoring hooks: ${index + 1}/${candidates.length} audio, motion, dialogue`,
+      `Scoring hooks: ${index + 1}/${candidates.length} audio, motion, faces, variety`,
     );
   }
 
@@ -1075,14 +1163,6 @@ const highlightMetadataFromCandidate = (candidate: HookCandidate): HighlightMeta
       candidate.loudnessScore * 0.06 +
       (1 - candidate.dialogueScore) * 0.06,
   );
-  const focus =
-    candidate.dialogueScore >= 0.62 || candidate.faceScore >= 0.62
-      ? "dialogue"
-      : candidate.motionScore >= 0.62
-        ? "motion"
-        : candidate.sceneScore >= 0.55 || candidate.shotDensityScore >= 0.58
-          ? "scene"
-          : "balanced";
 
   return {
     motionScore: roundScore(candidate.motionScore),
@@ -1094,12 +1174,7 @@ const highlightMetadataFromCandidate = (candidate: HookCandidate): HighlightMeta
     loudnessScore: roundScore(candidate.loudnessScore),
     audioScore: roundScore(candidate.audioScore),
     energyScore,
-    varietyKey: [
-      focus,
-      `motion-${scoreLevel(candidate.motionScore)}`,
-      `scene-${scoreLevel(candidate.sceneScore)}`,
-      `talk-${scoreLevel(candidate.dialogueScore)}`,
-    ].join("|"),
+    varietyKey: candidateVarietyKey(candidate),
   };
 };
 
@@ -1112,19 +1187,34 @@ const selectDiverseHighlights = ({
   clipDuration: number;
   maxClips: number;
 }) => {
-  const bestByBucket = new Map<number, HookCandidate>();
+  const minDistance = Math.max(clipDuration * 1.35, 12);
+  const candidatesByBucket = new Map<number, HookCandidate[]>();
 
   for (const candidate of candidates) {
-    const current = bestByBucket.get(candidate.bucketIndex);
-    if (!current || candidate.score > current.score) {
-      bestByBucket.set(candidate.bucketIndex, candidate);
-    }
+    const bucket = candidatesByBucket.get(candidate.bucketIndex) ?? [];
+    bucket.push(candidate);
+    candidatesByBucket.set(candidate.bucketIndex, bucket);
   }
 
-  const selected: HookCandidate[] = [...bestByBucket.values()].sort(
-    (a, b) => a.bucketIndex - b.bucketIndex,
-  );
-  const minDistance = Math.max(clipDuration * 1.35, 12);
+  const selected: HookCandidate[] = [];
+  const bucketIndexes = [...candidatesByBucket.keys()].sort((a, b) => a - b);
+
+  for (const bucketIndex of bucketIndexes) {
+    if (selected.length >= maxClips) {
+      break;
+    }
+
+    const bucketCandidates = candidatesByBucket.get(bucketIndex) ?? [];
+    const best = [...bucketCandidates].sort(
+      (a, b) =>
+        candidateSelectionScore({candidate: b, selected, minDistance}) -
+        candidateSelectionScore({candidate: a, selected, minDistance}),
+    )[0];
+
+    if (best) {
+      selected.push(best);
+    }
+  }
 
   for (const candidate of [...candidates].sort((a, b) => b.score - a.score)) {
     if (selected.length >= maxClips) {
@@ -1138,11 +1228,7 @@ const selectDiverseHighlights = ({
       continue;
     }
 
-    const tooClose = selected.some(
-      (item) => Math.abs(item.start - candidate.start) < minDistance,
-    );
-
-    if (tooClose) {
+    if (candidateSelectionScore({candidate, selected, minDistance}) < candidate.score - 0.28) {
       continue;
     }
 

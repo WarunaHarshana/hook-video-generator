@@ -47,7 +47,14 @@ type HighlightSegment = {
 
 type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 type ReframeMode = "none" | "auto";
-type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
+type ColorEnhancement =
+  | "off"
+  | "hdr-natural"
+  | "hdr-vivid"
+  | "cinema-pop"
+  | "warm-pop"
+  | "cool-pop"
+  | "beat-color";
 type BeatSyncIntensity = "loose" | "tight" | "fast";
 type EditEnergy = "calm" | "balanced" | "aggressive";
 type MusicSectionType = "intro" | "verse" | "build" | "drop" | "outro";
@@ -341,6 +348,10 @@ const colorEnhancements = new Set<ColorEnhancement>([
   "off",
   "hdr-natural",
   "hdr-vivid",
+  "cinema-pop",
+  "warm-pop",
+  "cool-pop",
+  "beat-color",
 ]);
 const effectPresets = new Set<EffectPreset>([
   "clean",

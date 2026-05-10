@@ -46,7 +46,14 @@ export type HighlightSegment = {
 
 export type OutputAspectRatio = "source" | "9:16" | "1:1" | "4:5" | "16:9";
 export type ReframeMode = "none" | "auto";
-export type ColorEnhancement = "off" | "hdr-natural" | "hdr-vivid";
+export type ColorEnhancement =
+  | "off"
+  | "hdr-natural"
+  | "hdr-vivid"
+  | "cinema-pop"
+  | "warm-pop"
+  | "cool-pop"
+  | "beat-color";
 export type BeatSyncIntensity = "loose" | "tight" | "fast";
 export type EditEnergy = "calm" | "balanced" | "aggressive";
 export type EffectPreset =
@@ -220,7 +227,33 @@ const resolveMediaSrc = (src: string) => {
   return staticFile(src);
 };
 
-const colorEnhancementFilter = (colorEnhancement: ColorEnhancement) => {
+const colorEnhancementFilter = (
+  colorEnhancement: ColorEnhancement,
+  pulse = 0,
+) => {
+  const beatPulse = clamp(pulse, 0, 1);
+
+  if (colorEnhancement === "beat-color") {
+    const brightness = 1.02 + beatPulse * 0.035;
+    const contrast = 1.1 + beatPulse * 0.06;
+    const saturation = 1.16 + beatPulse * 0.46;
+    const hue = (beatPulse - 0.5) * 7;
+
+    return `brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)}) saturate(${saturation.toFixed(3)}) hue-rotate(${hue.toFixed(2)}deg)`;
+  }
+
+  if (colorEnhancement === "cool-pop") {
+    return "brightness(1.02) contrast(1.14) saturate(1.16) hue-rotate(4deg)";
+  }
+
+  if (colorEnhancement === "warm-pop") {
+    return "brightness(1.03) contrast(1.12) saturate(1.18) sepia(0.08) hue-rotate(-3deg)";
+  }
+
+  if (colorEnhancement === "cinema-pop") {
+    return "brightness(1.02) contrast(1.16) saturate(1.22)";
+  }
+
   if (colorEnhancement === "hdr-vivid") {
     return "brightness(1.05) contrast(1.2) saturate(1.32)";
   }
@@ -1446,7 +1479,7 @@ const effectVideoFilter = (
   preset: ResolvedEffectPreset,
   pulse: number,
 ) => {
-  const color = colorEnhancementFilter(colorEnhancement);
+  const color = colorEnhancementFilter(colorEnhancement, pulse);
   const blur =
     preset === "drop-whip"
       ? pulse * 0.78
