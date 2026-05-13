@@ -13,6 +13,10 @@ import ffmpegPath from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
 
 type HighlightMetadata = {
+  hookScore?: number;
+  qualityScore?: number;
+  role?: "opener" | "story" | "action" | "beat" | "transition";
+  qualityFlags?: string[];
   motionScore?: number;
   shotDensityScore?: number;
   spikeScore?: number;
@@ -499,6 +503,23 @@ const normalizeHighlightMetadata = (
 
   const input = value as HighlightMetadata;
   return {
+    hookScore: clampNumber(input.hookScore, 0, 1, clampNumber(input.energyScore, 0, 1, 0.45)),
+    qualityScore: clampNumber(input.qualityScore, 0, 1, clampNumber(input.energyScore, 0, 1, 0.45)),
+    role:
+      input.role === "opener" ||
+      input.role === "story" ||
+      input.role === "action" ||
+      input.role === "beat" ||
+      input.role === "transition"
+        ? input.role
+        : undefined,
+    qualityFlags: Array.isArray(input.qualityFlags)
+      ? input.qualityFlags
+          .filter((flag): flag is string => typeof flag === "string")
+          .map((flag) => flag.trim())
+          .filter(Boolean)
+          .slice(0, 5)
+      : undefined,
     motionScore: clampNumber(input.motionScore, 0, 1, 0.45),
     shotDensityScore: clampNumber(input.shotDensityScore, 0, 1, 0.45),
     spikeScore: clampNumber(input.spikeScore, 0, 1, 0.35),
@@ -2390,6 +2411,7 @@ const routeApi = async (
       gl?: string;
       concurrency?: number;
       renderMode?: string;
+      renderQuality?: string;
       renderTimeoutMinutes?: number;
     }>(req);
     const requestedOutputPath = resolveWorkspacePath(body.out, defaultOutputPath);
@@ -2402,6 +2424,8 @@ const routeApi = async (
       outputPath,
       "--render-mode",
       body.renderMode?.trim() || "auto",
+      "--quality",
+      body.renderQuality?.trim() || "balanced",
     ];
 
     if (body.gl?.trim()) {
@@ -2452,6 +2476,7 @@ const routeApi = async (
       gl?: string;
       concurrency?: number;
       renderMode?: string;
+      renderQuality?: string;
       renderTimeoutMinutes?: number;
     }>(req);
     await mkdir(tempDir, {recursive: true});
@@ -2462,6 +2487,8 @@ const routeApi = async (
       previewPath,
       "--render-mode",
       body.renderMode?.trim() || "auto",
+      "--quality",
+      body.renderQuality?.trim() || "preview",
       "--max-edge",
       String(previewMaxEdge),
     ];

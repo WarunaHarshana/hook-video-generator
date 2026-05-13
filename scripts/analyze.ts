@@ -7,6 +7,10 @@ import ffmpegPath from "ffmpeg-static";
 import {path as ffprobePath} from "ffprobe-static";
 
 type HighlightMetadata = VideoAnalysisSummary & {
+  hookScore: number;
+  qualityScore: number;
+  role: "opener" | "story" | "action" | "beat" | "transition";
+  qualityFlags: string[];
   loudnessScore: number;
   audioScore: number;
   varietyKey: string;
@@ -125,6 +129,10 @@ type HookCandidate = {
   dialogueScore: number;
   faceScore: number;
   audioScore: number;
+  hookScore: number;
+  qualityScore: number;
+  qualityFlags: string[];
+  hookRole: "opener" | "story" | "action" | "beat" | "transition";
   endScore: number;
   score: number;
 };
@@ -243,6 +251,23 @@ const normalizeHighlightMetadata = (
   );
 
   return {
+    hookScore: roundScore(finiteScore(value.hookScore, energyScore)),
+    qualityScore: roundScore(finiteScore(value.qualityScore, energyScore)),
+    role:
+      value.role === "opener" ||
+      value.role === "story" ||
+      value.role === "action" ||
+      value.role === "beat" ||
+      value.role === "transition"
+        ? value.role
+        : "beat",
+    qualityFlags: Array.isArray(value.qualityFlags)
+      ? value.qualityFlags
+          .filter((flag): flag is string => typeof flag === "string")
+          .map((flag) => flag.trim())
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
     motionScore: roundScore(finiteScore(value.motionScore, 0.45)),
     shotDensityScore: roundScore(finiteScore(value.shotDensityScore, 0.45)),
     spikeScore: roundScore(finiteScore(value.spikeScore, 0.35)),
@@ -991,6 +1016,10 @@ const buildCandidatePool = ({
           dialogueScore: 0.45,
           faceScore: 0.45,
           audioScore: 0.45,
+          hookScore: 0.45,
+          qualityScore: 0.45,
+          qualityFlags: [],
+          hookRole: "beat" as const,
           endScore,
           score:
             (sceneScore * 0.28 +
@@ -1043,6 +1072,106 @@ const candidateVarietyKey = (candidate: HookCandidate) => {
     `scene-${scoreLevel(candidate.sceneScore)}`,
     `talk-${scoreLevel(candidate.dialogueScore)}`,
   ].join("|");
+};
+
+const candidateRole = (
+  candidate: HookCandidate,
+): HookCandidate["hookRole"] => {
+  const focus = hookFocusForCandidate(candidate);
+
+  if (candidate.bucketIndex === 0) {
+    return "opener";
+  }
+
+  if (focus === "dialogue") {
+    return "story";
+  }
+
+  if (focus === "action" || focus === "motion") {
+    return "action";
+  }
+
+  if (focus === "scene") {
+    return "transition";
+  }
+
+  return "beat";
+};
+
+const candidateQualityProfile = ({
+  candidate,
+  signalBlend,
+  hookLift,
+}: {
+  candidate: HookCandidate;
+  signalBlend: number;
+  hookLift: number;
+}) => {
+  const flags: string[] = [];
+  const flatVisual =
+    candidate.motionScore < 0.22 &&
+    candidate.sceneScore < 0.22 &&
+    candidate.shotDensityScore < 0.22;
+  const flatAudio =
+    candidate.loudnessScore < 0.24 &&
+    candidate.spikeScore < 0.22 &&
+    candidate.dialogueScore < 0.28;
+  const weakMoment = signalBlend < 0.34 && hookLift < 0.34;
+  const strongMoment =
+    signalBlend >= 0.62 ||
+    hookLift >= 0.62 ||
+    candidate.spikeScore >= 0.72 ||
+    candidate.motionScore >= 0.72;
+
+  if (flatVisual) {
+    flags.push("low motion");
+  }
+
+  if (flatAudio) {
+    flags.push("flat audio");
+  }
+
+  if (weakMoment) {
+    flags.push("weak hook");
+  }
+
+  if (candidate.endScore < 0.72) {
+    flags.push("near ending");
+  }
+
+  const penalty =
+    (flatVisual ? 0.18 : 0) +
+    (flatAudio ? 0.14 : 0) +
+    (weakMoment ? 0.16 : 0) +
+    (candidate.endScore < 0.72 ? 0.08 : 0);
+  const qualityScore = clamp(
+    signalBlend * 0.34 +
+      hookLift * 0.32 +
+      candidate.targetScore * 0.12 +
+      candidate.endScore * 0.12 +
+      (strongMoment ? 0.1 : 0) -
+      penalty,
+    0,
+    1,
+  );
+  const hookScore = clamp(
+    hookLift * 0.36 +
+      signalBlend * 0.34 +
+      candidate.spikeScore * 0.1 +
+      candidate.sceneScore * 0.08 +
+      candidate.motionScore * 0.08 +
+      candidate.targetScore * 0.04 -
+      penalty * 0.5,
+    0,
+    1,
+  );
+
+  return {
+    hookScore,
+    qualityScore,
+    flags,
+    role: candidateRole(candidate),
+  };
 };
 
 const candidateSelectionScore = ({
@@ -1123,6 +1252,20 @@ const scoreCandidates = async ({
       0,
       1,
     );
+    const enrichedCandidate = {
+      ...candidate,
+      motionScore,
+      loudnessScore: audio.loudnessScore,
+      spikeScore: audio.spikeScore,
+      dialogueScore: audio.dialogueScore,
+      faceScore,
+      audioScore: audio.audioScore,
+    };
+    const qualityProfile = candidateQualityProfile({
+      candidate: enrichedCandidate,
+      signalBlend,
+      hookLift,
+    });
     const score =
       candidate.sceneScore * 0.08 +
       candidate.shotDensityScore * 0.1 +
@@ -1133,16 +1276,15 @@ const scoreCandidates = async ({
       candidate.targetScore * 0.08 +
       signalBlend * 0.1 +
       hookLift * 0.04;
+    const qualityMultiplier = 0.72 + qualityProfile.qualityScore * 0.42;
 
     scored.push({
-      ...candidate,
-      motionScore,
-      loudnessScore: audio.loudnessScore,
-      spikeScore: audio.spikeScore,
-      dialogueScore: audio.dialogueScore,
-      faceScore,
-      audioScore: audio.audioScore,
-      score: score * candidate.endScore * openingPenalty,
+      ...enrichedCandidate,
+      hookScore: qualityProfile.hookScore,
+      qualityScore: qualityProfile.qualityScore,
+      qualityFlags: qualityProfile.flags,
+      hookRole: qualityProfile.role,
+      score: score * candidate.endScore * openingPenalty * qualityMultiplier,
     });
 
     progress(
@@ -1165,6 +1307,10 @@ const highlightMetadataFromCandidate = (candidate: HookCandidate): HighlightMeta
   );
 
   return {
+    hookScore: roundScore(candidate.hookScore),
+    qualityScore: roundScore(candidate.qualityScore),
+    role: candidate.hookRole,
+    qualityFlags: candidate.qualityFlags.slice(0, 5),
     motionScore: roundScore(candidate.motionScore),
     shotDensityScore: roundScore(candidate.shotDensityScore),
     spikeScore: roundScore(candidate.spikeScore),
@@ -1188,9 +1334,21 @@ const selectDiverseHighlights = ({
   maxClips: number;
 }) => {
   const minDistance = Math.max(clipDuration * 1.35, 12);
+  const bestScore = Math.max(0, ...candidates.map((candidate) => candidate.score));
+  const strongCandidates = candidates.filter((candidate) => {
+    return (
+      candidate.qualityScore >= 0.36 ||
+      candidate.hookScore >= 0.42 ||
+      candidate.score >= bestScore * 0.82
+    );
+  });
+  const usableCandidates =
+    strongCandidates.length >= Math.min(maxClips, candidates.length)
+      ? strongCandidates
+      : candidates;
   const candidatesByBucket = new Map<number, HookCandidate[]>();
 
-  for (const candidate of candidates) {
+  for (const candidate of usableCandidates) {
     const bucket = candidatesByBucket.get(candidate.bucketIndex) ?? [];
     bucket.push(candidate);
     candidatesByBucket.set(candidate.bucketIndex, bucket);
@@ -1216,7 +1374,7 @@ const selectDiverseHighlights = ({
     }
   }
 
-  for (const candidate of [...candidates].sort((a, b) => b.score - a.score)) {
+  for (const candidate of [...usableCandidates].sort((a, b) => b.score - a.score)) {
     if (selected.length >= maxClips) {
       break;
     }

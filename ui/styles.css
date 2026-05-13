@@ -775,7 +775,7 @@ video:fullscreen {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 620px;
+  min-width: 760px;
 }
 
 th,
@@ -796,8 +796,12 @@ td:first-child {
   width: 138px;
 }
 
-td:nth-child(2),
-td:nth-child(3) {
+td:nth-child(2) {
+  width: 132px;
+}
+
+td:nth-child(3),
+td:nth-child(4) {
   width: 120px;
 }
 
@@ -839,6 +843,54 @@ tr:last-child td {
   font-size: 11px;
   line-height: 1.2;
   white-space: normal;
+}
+
+.score-stack {
+  display: grid;
+  gap: 5px;
+  align-content: center;
+  min-width: 110px;
+}
+
+.score-chip,
+.role-chip {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.score-chip.strong {
+  background: #e8f6ee;
+  color: #10613d;
+}
+
+.score-chip.ok,
+.score-chip.neutral {
+  background: #eef4fb;
+  color: #245f9f;
+}
+
+.score-chip.weak {
+  background: #fbf1e7;
+  color: #87520c;
+}
+
+.role-chip {
+  background: #f2f4f6;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.quality-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .thumb-button:hover,

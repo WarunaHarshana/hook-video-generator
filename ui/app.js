@@ -64,6 +64,7 @@ const els = {
   musicProgressPercent: document.querySelector("#musicProgressPercent"),
   musicProgressFill: document.querySelector("#musicProgressFill"),
   renderMode: document.querySelector("#renderMode"),
+  renderQuality: document.querySelector("#renderQuality"),
   glMode: document.querySelector("#glMode"),
   concurrency: document.querySelector("#concurrency"),
   renderTimeout: document.querySelector("#renderTimeout"),
@@ -283,6 +284,7 @@ const highlightMetaSummary = (highlight) => {
   }
 
   const entries = [
+    ["Hook", metadata.hookScore],
     ["Energy", metadata.energyScore],
     ["Motion", metadata.motionScore],
     ["Scene", metadata.sceneScore],
@@ -303,6 +305,32 @@ const highlightMetaSummary = (highlight) => {
     .join(" · ");
 
   return highlight?.reframe?.tracking === "face" ? `${signals} · Focus face` : signals;
+};
+
+const highlightQualitySummary = (highlight) => {
+  const metadata = highlight?.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return `<span class="score-chip neutral">Manual</span>`;
+  }
+
+  const hookScore = Number(metadata.hookScore ?? metadata.energyScore);
+  const qualityScore = Number(metadata.qualityScore ?? metadata.energyScore);
+  const role = typeof metadata.role === "string" ? metadata.role : "beat";
+  const flags = Array.isArray(metadata.qualityFlags)
+    ? metadata.qualityFlags.filter(Boolean).slice(0, 2)
+    : [];
+  const score = Number.isFinite(hookScore) ? Math.round(hookScore * 100) : 0;
+  const quality = Number.isFinite(qualityScore) ? Math.round(qualityScore * 100) : 0;
+  const tone = score >= 72 ? "strong" : score >= 52 ? "ok" : "weak";
+  const flagText = flags.length ? flags.join(" · ") : `Clean ${quality}`;
+
+  return `
+    <div class="score-stack">
+      <span class="score-chip ${tone}">Hook ${score}</span>
+      <span class="role-chip">${escapeHtml(role)}</span>
+      <span class="quality-note">${escapeHtml(flagText)}</span>
+    </div>
+  `;
 };
 
 const getEffectRecommendation = (project = state.project) => {
@@ -431,6 +459,7 @@ const setBusy = (busy) => {
   els.beatEditEnergy.disabled =
     busy || !hasMusicSource || !hasAnalyzedBeats || !els.beatSyncEnabled.checked;
   els.renderMode.disabled = busy;
+  els.renderQuality.disabled = busy;
   els.glMode.disabled = busy || cpuMode;
   els.concurrency.disabled = busy;
   els.renderTimeout.disabled = busy;
@@ -1156,7 +1185,7 @@ const renderHighlights = () => {
 
   if (!highlights.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td class="empty-row" colspan="4">No highlights</td>`;
+    row.innerHTML = `<td class="empty-row" colspan="5">No highlights</td>`;
     els.highlightRows.append(row);
     return;
   }
@@ -1182,6 +1211,7 @@ const renderHighlights = () => {
           ${metaSummary ? `<div class="thumb-meta">${escapeHtml(metaSummary)}</div>` : ""}
         </div>
       </td>
+      <td>${highlightQualitySummary(highlight)}</td>
       <td><input data-index="${index}" data-field="start" type="number" min="0" step="0.01" value="${highlight.start}"></td>
       <td><input data-index="${index}" data-field="duration" type="number" min="0.01" step="0.01" value="${highlight.duration}"></td>
       <td><button class="remove-btn" data-remove="${index}">Remove</button></td>
@@ -1338,6 +1368,7 @@ const startRender = async () => {
     body: JSON.stringify({
       out: els.outputPath.value,
       renderMode: els.renderMode.value,
+      renderQuality: els.renderQuality.value,
       gl: els.glMode.value,
       concurrency: Number(els.concurrency.value),
       renderTimeoutMinutes: Number(els.renderTimeout.value),
@@ -1362,6 +1393,7 @@ const startPreview = async () => {
     method: "POST",
     body: JSON.stringify({
       renderMode: els.renderMode.value,
+      renderQuality: "preview",
       gl: els.glMode.value,
       concurrency: Number(els.concurrency.value),
       renderTimeoutMinutes: Number(els.renderTimeout.value),

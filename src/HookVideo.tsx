@@ -12,6 +12,10 @@ import {
 } from "remotion";
 
 export type HighlightMetadata = {
+  hookScore?: number;
+  qualityScore?: number;
+  role?: "opener" | "story" | "action" | "beat" | "transition";
+  qualityFlags?: string[];
   motionScore?: number;
   shotDensityScore?: number;
   spikeScore?: number;
@@ -611,6 +615,8 @@ const roleFitScore = (
   const face = metadataScore(metadata, "faceScore", 0.45);
   const scene = metadataScore(metadata, "sceneScore", 0.45);
   const loudness = metadataScore(metadata, "loudnessScore", 0.45);
+  const hook = metadataScore(metadata, "hookScore", 0.45);
+  const quality = metadataScore(metadata, "qualityScore", 0.45);
   const energy = metadataScore(
     metadata,
     "energyScore",
@@ -628,30 +634,30 @@ const roleFitScore = (
   const story = clamp(dialogue * 0.62 + face * 0.38, 0, 1);
 
   if (beat.role === "drop") {
-    return energy * 0.34 + motion * 0.28 + scene * 0.18 + spike * 0.14 + shotDensity * 0.06;
+    return hook * 0.22 + quality * 0.1 + energy * 0.28 + motion * 0.22 + scene * 0.12 + spike * 0.06;
   }
 
   if (beat.role === "strong") {
-    return energy * 0.3 + spike * 0.24 + scene * 0.2 + motion * 0.18 + loudness * 0.08;
+    return hook * 0.22 + energy * 0.24 + spike * 0.2 + scene * 0.16 + motion * 0.12 + quality * 0.06;
   }
 
   if (beat.role === "fill") {
-    return motion * 0.34 + shotDensity * 0.28 + scene * 0.16 + energy * 0.16 + spike * 0.06;
+    return hook * 0.16 + motion * 0.28 + shotDensity * 0.24 + scene * 0.14 + energy * 0.12 + quality * 0.06;
   }
 
   if (beat.role === "transition") {
-    return scene * 0.38 + shotDensity * 0.22 + energy * 0.2 + story * 0.2;
+    return scene * 0.3 + shotDensity * 0.18 + hook * 0.18 + energy * 0.16 + story * 0.12 + quality * 0.06;
   }
 
   if (sectionPrefersStory(beat.sectionType)) {
-    return story * 0.4 + scene * 0.18 + energy * 0.18 + loudness * 0.14 + motion * 0.1;
+    return story * 0.34 + hook * 0.2 + scene * 0.14 + energy * 0.14 + loudness * 0.1 + quality * 0.08;
   }
 
   if (beat.sectionType === "build") {
-    return energy * 0.3 + motion * 0.24 + shotDensity * 0.2 + scene * 0.16 + spike * 0.1;
+    return hook * 0.22 + energy * 0.24 + motion * 0.2 + shotDensity * 0.16 + scene * 0.1 + quality * 0.08;
   }
 
-  return energy * 0.28 + scene * 0.22 + motion * 0.2 + story * 0.18 + spike * 0.12;
+  return hook * 0.22 + energy * 0.22 + quality * 0.14 + scene * 0.16 + motion * 0.14 + story * 0.08 + spike * 0.04;
 };
 
 const metadataSimilarity = (
@@ -670,6 +676,8 @@ const metadataSimilarity = (
     "faceScore",
     "sceneScore",
     "energyScore",
+    "hookScore",
+    "qualityScore",
   ];
   const distance =
     features.reduce((sum, key) => {

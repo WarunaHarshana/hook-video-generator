@@ -27,8 +27,11 @@ type AllowedGl = (typeof allowedGlValues)[number];
 const allowedGl = new Set<string>(allowedGlValues);
 const renderModeValues = ["auto", "gpu", "cpu"] as const;
 type RenderMode = (typeof renderModeValues)[number];
+const renderQualityValues = ["preview", "balanced", "high", "maximum"] as const;
+type RenderQuality = (typeof renderQualityValues)[number];
 type HardwareAcceleration = "disable" | "if-possible" | "required";
 const renderModes = new Set<string>(renderModeValues);
+const renderQualities = new Set<string>(renderQualityValues);
 const DEFAULT_RENDER_TIMEOUT_MS = 5 * 60 * 1000;
 
 const readFlag = (name: string) => {
@@ -94,6 +97,31 @@ const readRenderMode = () => {
   }
 
   return value as RenderMode;
+};
+
+const readRenderQuality = () => {
+  const value = readFlag("--quality") ?? "balanced";
+  if (!renderQualities.has(value)) {
+    throw new Error("--quality must be one of: preview, balanced, high, maximum.");
+  }
+
+  return value as RenderQuality;
+};
+
+const renderQualitySettings = (quality: RenderQuality) => {
+  if (quality === "preview") {
+    return {crf: 28, audioBitrate: "128k" as const};
+  }
+
+  if (quality === "high") {
+    return {crf: 18, audioBitrate: "192k" as const};
+  }
+
+  if (quality === "maximum") {
+    return {crf: 16, audioBitrate: "256k" as const};
+  }
+
+  return {crf: 21, audioBitrate: "160k" as const};
 };
 
 const evenDimension = (value: number) => {
@@ -364,6 +392,7 @@ const main = async () => {
   const gl = readFlag("--gl");
   const concurrency = readNumberFlag("--concurrency");
   const renderMode = readRenderMode();
+  const renderQuality = readRenderQuality();
   const timeoutInMilliseconds = readTimeoutInMilliseconds();
   const maxEdge = readNumberFlag("--max-edge");
 
@@ -372,6 +401,7 @@ const main = async () => {
   }
   const chromiumGl = gl as AllowedGl | undefined;
   const renderSettings = renderSettingsForMode(renderMode, chromiumGl);
+  const qualitySettings = renderQualitySettings(renderQuality);
 
   const {inputProps, publicDir, cleanup} = await loadProject(projectPath);
   await mkdir(path.dirname(outputLocation), {recursive: true});
@@ -383,7 +413,7 @@ const main = async () => {
       );
     }
     process.stdout.write(
-      `Render mode: ${renderMode}; hardware acceleration: ${
+      `Render mode: ${renderMode}; quality: ${renderQuality}; hardware acceleration: ${
         renderSettings.hardwareAcceleration
       }; GL: ${
         renderSettings.chromiumGl ?? "default"
@@ -411,6 +441,8 @@ const main = async () => {
       hardwareAcceleration: renderSettings.hardwareAcceleration,
       timeoutInMilliseconds,
       concurrency,
+      crf: qualitySettings.crf,
+      audioBitrate: qualitySettings.audioBitrate,
       chromiumOptions: renderSettings.chromiumGl
         ? {gl: renderSettings.chromiumGl}
         : undefined,
